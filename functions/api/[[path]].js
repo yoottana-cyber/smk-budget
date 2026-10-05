@@ -41,7 +41,7 @@ async function ensure(env){
 async function hsign(data,secret){const k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return new Uint8Array(await crypto.subtle.sign("HMAC",k,enc.encode(data)))}
 async function token(user,secret){const h=b64t(JSON.stringify({alg:"HS256",typ:"JWT"})),p=b64t(JSON.stringify({...user,exp:Math.floor(Date.now()/1000)+28800})),d=`${h}.${p}`;return`${d}.${b64u(await hsign(d,secret))}`}
 async function verify(t,secret){try{const[h,p,s]=t.split("."),k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["verify"]),ok=await crypto.subtle.verify("HMAC",k,from64(s),enc.encode(`${h}.${p}`));if(!ok)return null;const u=JSON.parse(new TextDecoder().decode(from64(p)));return u.exp>Math.floor(Date.now()/1000)?u:null}catch{return null}}
-async function user(ctx,roles=[]){const a=ctx.request.headers.get("authorization")||"",u=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);if(!u)return{error:"UNAUTHORIZED"};if(roles.length&&!roles.includes(u.role))return{error:"FORBIDDEN",u};return{u}}
+async function user(ctx,roles=[]){const a=ctx.request.headers.get("authorization")||"",t=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);if(!t)return{error:"UNAUTHORIZED"};const us=await list(ctx.env,"Users"),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};const u={id:row.id,username:row.username,role:row.role,displayName:row.displayName};if(roles.length&&!roles.includes(u.role))return{error:"FORBIDDEN",u};return{u}}
 const roleStatus=x=>x==="FORBIDDEN"?403:401;
 
 export async function onRequest(ctx){
@@ -61,6 +61,39 @@ export async function onRequest(ctx){
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
     if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const[projects,activities,expenses]=await Promise.all([list(env,"Projects"),list(env,"Activities"),list(env,"Expenses")]);return json({projects,activities,expenses})}
+
+    if(path==="users"){
+      const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
+      const roles=["admin","planner","finance","viewer"],statuses=["active","inactive"];
+      if(method==="GET"){
+        const us=await list(env,"Users");
+        return json({users:us.map(x=>({id:x.id,username:x.username,role:x.role,displayName:x.displayName,status:x.status,createdAt:x.createdAt})).sort((x,y)=>x.username.localeCompare(y.username))});
+      }
+      if(method==="POST"){
+        const d=await body(ctx.request),username=String(d.username||"").trim(),displayName=String(d.displayName||"").trim(),password=String(d.password||""),role=String(d.role||"viewer"),status=String(d.status||"active");
+        if(username.length<3)return bad("ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร");
+        if(!displayName)return bad("กรุณากรอกชื่อที่แสดง");
+        if(password.length<6)return bad("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
+        if(!roles.includes(role)||!statuses.includes(status))return bad("สิทธิ์หรือสถานะไม่ถูกต้อง");
+        const us=await list(env,"Users");if(us.some(x=>x.username.toLowerCase()===username.toLowerCase()))return bad("ชื่อผู้ใช้นี้มีอยู่แล้ว",409);
+        const row={id:`usr_${crypto.randomUUID()}`,username,passwordHash:await sha(`${env.PASSWORD_PEPPER}:${password}`),role,displayName,status,createdAt:new Date().toISOString()};
+        await append(env,"Users",row);
+        return json({ok:true,user:{id:row.id,username:row.username,role:row.role,displayName:row.displayName,status:row.status,createdAt:row.createdAt}},201);
+      }
+      if(method==="PUT"){
+        const d=await body(ctx.request);if(!d.id)return bad("ไม่พบรหัสผู้ใช้งาน");
+        const us=await list(env,"Users"),old=us.find(x=>x.id===d.id);if(!old)return bad("ไม่พบผู้ใช้งาน",404);
+        const patch={};
+        if(d.displayName!==undefined){const v=String(d.displayName||"").trim();if(!v)return bad("ชื่อที่แสดงห้ามว่าง");patch.displayName=v}
+        if(d.role!==undefined){if(!roles.includes(d.role))return bad("สิทธิ์ไม่ถูกต้อง");if(d.id===a.u.id&&d.role!=="admin")return bad("ไม่สามารถลดสิทธิ์บัญชีที่กำลังใช้งานอยู่",409);patch.role=d.role}
+        if(d.status!==undefined){if(!statuses.includes(d.status))return bad("สถานะไม่ถูกต้อง");if(d.id===a.u.id&&d.status!=="active")return bad("ไม่สามารถปิดบัญชีที่กำลังใช้งานอยู่",409);patch.status=d.status}
+        if(d.password!==undefined){const p=String(d.password||"");if(p.length<6)return bad("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");patch.passwordHash=await sha(`${env.PASSWORD_PEPPER}:${p}`)}
+        if(!Object.keys(patch).length)return bad("ไม่มีข้อมูลที่ต้องแก้ไข");
+        const row=await update(env,"Users",d.id,patch);
+        return json({ok:true,user:{id:row.id,username:row.username,role:row.role,displayName:row.displayName,status:row.status,createdAt:row.createdAt}});
+      }
+      return bad("Method not allowed",405);
+    }
 
     const map={projects:"Projects",activities:"Activities",expenses:"Expenses"},sheet=map[path];
     if(sheet){
