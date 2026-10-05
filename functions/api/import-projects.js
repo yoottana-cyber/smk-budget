@@ -1,5 +1,5 @@
 
-import {ensureExtra,list,append,update,auth,json,bad,amount,readBody} from "../_lib/budget-db.js";
+import {ensureExtra,list,append,update,auth,json,bad,amount,readBody} from "../../src/budget-db.js";
 
 const clean=s=>String(s??"").trim();
 const keyOf=(fy,division,code)=>[fy,division,code].map(clean).join("|").toLowerCase();
