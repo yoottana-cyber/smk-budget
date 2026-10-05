@@ -8,7 +8,7 @@ function splitActivityName(v){
   return m?{code:m[1],name:(m[2]||s).trim()}:{code:"",name:s};
 }
 function parseProjectWorkbook(wb){
-  const projects=[],summary=[];
+  const projects=[],summary=[],fundTotals={subsidy:0,activity:0,income:0,other:0};
   for(const sheetName of wb.SheetNames){
     if(sheetName.includes("ตรวจสอบเงินกิจกรรม"))continue;
     const ws=wb.Sheets[sheetName],rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
@@ -30,12 +30,13 @@ function parseProjectWorkbook(wb){
       const n=splitActivityName(b);
       const subsidyBudget=importMoney(r[3]),activityBudget=importMoney(r[4]),incomeBudget=importMoney(r[5]),otherBudget=importMoney(r[6]);
       const budget=subsidyBudget+activityBudget+incomeBudget+otherBudget;
+      fundTotals.subsidy+=subsidyBudget;fundTotals.activity+=activityBudget;fundTotals.income+=incomeBudget;fundTotals.other+=otherBudget;
       current.activities.push({code:n.code,name:n.name,owner:owner||current.owner,budget,subsidyBudget,activityBudget,incomeBudget,otherBudget});
       current.budget+=budget;activityCount++;total+=budget;
     }
     if(projectCount)summary.push({division:sheetName,fiscalYear:fy,projects:projectCount,activities:activityCount,total});
   }
-  return{projects,summary};
+  return{projects,summary,fundTotals};
 }
 async function importProjects(){
   if(!hasAnyRole(["admin","planner"])){state.route="dashboard";return render()}
@@ -64,9 +65,17 @@ async function importProjects(){
           <article class="stat-card"><span class="stat-icon"><i data-lucide="list-checks"></i></span><div><small>กิจกรรม</small><strong>${totalActivities}</strong></div></article>
           <article class="stat-card"><span class="stat-icon"><i data-lucide="wallet-cards"></i></span><div><small>งบรวม</small><strong>${money(totalBudget)}</strong></div></article>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>ฝ่ายงาน/ชีต</th><th>ปีงบประมาณ</th><th class="num">โครงการ</th><th class="num">กิจกรรม</th><th class="num">งบรวม</th></tr></thead><tbody>
-          ${parsed.summary.map(x=>`<tr><td>${esc(x.division)}</td><td>${esc(x.fiscalYear)}</td><td class="num">${x.projects}</td><td class="num">${x.activities}</td><td class="num">${money(x.total)}</td></tr>`).join("")}
-        </tbody></table></div>
+        <div class="grid-2" style="margin-bottom:14px">
+          <div class="table-wrap"><table><thead><tr><th>ฝ่ายงาน/ชีต</th><th>ปีงบประมาณ</th><th class="num">โครงการ</th><th class="num">กิจกรรม</th><th class="num">งบรวม</th></tr></thead><tbody>
+            ${parsed.summary.map(x=>`<tr><td>${esc(x.division)}</td><td>${esc(x.fiscalYear)}</td><td class="num">${x.projects}</td><td class="num">${x.activities}</td><td class="num">${money(x.total)}</td></tr>`).join("")}
+          </tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>ประเภทเงิน</th><th class="num">งบ</th></tr></thead><tbody>
+            <tr><td>งบเงินอุดหนุน</td><td class="num">${money(parsed.fundTotals.subsidy)}</td></tr>
+            <tr><td>งบกิจกรรมพัฒนาคุณภาพผู้เรียน</td><td class="num">${money(parsed.fundTotals.activity)}</td></tr>
+            <tr><td>งบเงินรายได้ฯ</td><td class="num">${money(parsed.fundTotals.income)}</td></tr>
+            <tr><td>อื่น ๆ</td><td class="num">${money(parsed.fundTotals.other)}</td></tr>
+          </tbody></table></div>
+        </div>
         <div class="import-actions"><p class="muted">นำเข้าซ้ำได้ ระบบจะอัปเดตโครงการ/กิจกรรมเดิมที่ตรงกัน แทนการสร้างซ้ำ</p><button id="confirmImportBtn" class="btn btn-primary"><i data-lucide="upload"></i>นำเข้า ${totalProjects} โครงการ</button></div>`;
       lucide.createIcons();
       $("#confirmImportBtn").onclick=()=>confirmProjectImport();
@@ -81,7 +90,7 @@ async function confirmProjectImport(){
   try{
     const r=await api("/api/import-projects",{method:"POST",body:JSON.stringify({projects:parsed.projects})});
     await refreshData();
-    await Swal.fire({icon:"success",title:"นำเข้าเรียบร้อย",html:`สร้างโครงการใหม่ <b>${r.projectCreated}</b> / อัปเดต <b>${r.projectUpdated}</b><br>สร้างกิจกรรมใหม่ <b>${r.activityCreated}</b> / อัปเดต <b>${r.activityUpdated}</b>`});
+    await Swal.fire({icon:"success",title:"นำเข้าเรียบร้อย",html:`สร้างโครงการใหม่ <b>${r.projectCreated}</b> / อัปเดต <b>${r.projectUpdated}</b><br>สร้างกิจกรรมใหม่ <b>${r.activityCreated}</b> / อัปเดต <b>${r.activityUpdated}</b><br><small>ข้อมูลฝ่ายและประเภทเงินถูกอัปเดตพร้อมกัน</small>`});
     state.route="projects";render();
   }catch(x){err(x)}
 }
