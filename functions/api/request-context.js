@@ -1,5 +1,5 @@
 
-import {ensureExtra,list,auth,json,bad,amount,ownsProject,PENDING_STATUSES} from "../_lib/budget-db.js";
+import {ensureExtra,list,auth,json,bad,amount,ownsProject,PENDING_STATUSES} from "../../src/budget-db.js";
 
 export async function onRequestGet(ctx){
   try{
