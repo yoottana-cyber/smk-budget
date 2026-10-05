@@ -1,11 +1,12 @@
 
-import {ensureExtra,list,auth,json,bad,amount,ownsProject,PENDING_STATUSES} from "../../src/budget-db.js";
+import {ensureExtra,listMany,auth,json,bad,amount,ownsProject,PENDING_STATUSES} from "../../src/budget-db.js";
 
 export async function onRequestGet(ctx){
   try{
     await ensureExtra(ctx.env);
     const a=await auth(ctx,["admin","planner","teacher","procurement","finance"]);if(a.error)return bad("ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
-    const [projects,activities,metas,funds,requests]=await Promise.all([list(ctx.env,"Projects"),list(ctx.env,"Activities"),list(ctx.env,"ProjectMeta"),list(ctx.env,"ActivityFunds"),list(ctx.env,"Requests")]);
+    const grouped=await listMany(ctx.env,["Projects","Activities","ProjectMeta","ActivityFunds","Requests"]);
+    const projects=grouped.Projects,activities=grouped.Activities,metas=grouped.ProjectMeta,funds=grouped.ActivityFunds,requests=grouped.Requests;
     const visible=projects.filter(p=>a.u.role==="teacher"?ownsProject(a.u,p):true);
     const ids=new Set(visible.map(x=>x.id)),acts=activities.filter(x=>ids.has(x.projectId)),aids=new Set(acts.map(x=>x.id));
     const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x]));
