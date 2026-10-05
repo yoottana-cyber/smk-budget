@@ -147,6 +147,7 @@ function projects(){
   const metaMap=Object.fromEntries((state.data.projectMeta||[]).filter(x=>projectIds.has(x.projectId)).map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
   const allDivisions=[...new Set(ps.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))];
   let activeDivision=allDivisions[0]||"";
+  const openActivities=new Set();
   $("#content").innerHTML=`<section class="panel">
     <div class="toolbar">
       <input id="search" class="search" placeholder="ค้นหาโครงการ กิจกรรม หรือผู้รับผิดชอบ">
@@ -202,17 +203,23 @@ function projects(){
               </div>
             </div>
             <div class="activity-block">
-              <div class="activity-label"><i data-lucide="list-checks"></i><strong>กิจกรรม</strong><span>${acts.length} รายการ</span></div>
-              ${acts.length?`<div class="table-wrap activity-table"><table><thead><tr><th>รหัส</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class="num">งบดำเนินงาน</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>สถานะ</th><th></th></tr></thead><tbody>
-                ${acts.map(a=>{const x=astat(a,ex);return`<tr><td><strong>${esc(a.code||"-")}</strong></td><td>${esc(a.name)}</td><td>${esc(a.owner||"-")}</td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num ${x.balance<0?"negative":""}">${money(x.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-ae="${a.id}" title="แก้ไขกิจกรรม"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-ad="${a.id}" title="ลบกิจกรรม"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join("")}
-              </tbody></table></div>`:'<div class="empty activity-empty">ยังไม่มีกิจกรรมในโครงการนี้</div>'}
+              <button type="button" class="activity-toggle" data-toggle-activities="${p.id}" aria-expanded="${openActivities.has(p.id)?"true":"false"}">
+                <span class="activity-label"><i data-lucide="list-checks"></i><strong>กิจกรรม</strong><span>${acts.length} รายการ</span></span>
+                <span class="activity-toggle-hint">${openActivities.has(p.id)?"ซ่อนกิจกรรม":"ดูกิจกรรม"} <i data-lucide="chevron-down" class="${openActivities.has(p.id)?"rotated":""}"></i></span>
+              </button>
+              <div class="activity-collapse ${openActivities.has(p.id)?"open":""}">
+                ${acts.length?`<div class="table-wrap activity-table"><table><thead><tr><th>รหัส</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class="num">งบดำเนินงาน</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>สถานะ</th><th></th></tr></thead><tbody>
+                  ${acts.map(a=>{const x=astat(a,ex);return`<tr><td><strong>${esc(a.code||"-")}</strong></td><td>${esc(a.name)}</td><td>${esc(a.owner||"-")}</td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num ${x.balance<0?"negative":""}">${money(x.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-ae="${a.id}" title="แก้ไขกิจกรรม"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-ad="${a.id}" title="ลบกิจกรรม"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join("")}
+                </tbody></table></div>`:'<div class="empty activity-empty">ยังไม่มีกิจกรรมในโครงการนี้</div>'}
+              </div>
             </div>
           </article>`;
         }).join("")}
       </div>
     </section>`:`<div class="empty">ไม่พบโครงการหรือกิจกรรมในฝ่าย ${esc(activeDivision||"-")}</div>`;
 
-    $$("[data-add-activity]").forEach(b=>b.onclick=()=>activityForm(null,b.dataset.addActivity));
+    $("[data-toggle-activities]").forEach(b=>b.onclick=()=>{const id=b.dataset.toggleActivities;openActivities.has(id)?openActivities.delete(id):openActivities.add(id);paintProjects()});
+    $("[data-add-activity]").forEach(b=>b.onclick=()=>activityForm(null,b.dataset.addActivity));
     $$("[data-pe]").forEach(b=>b.onclick=()=>projectForm(state.data.projects.find(x=>x.id===b.dataset.pe)));
     $$("[data-pd]").forEach(b=>b.onclick=()=>remove("projects",b.dataset.pd));
     $$("[data-ae]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.ae)));
