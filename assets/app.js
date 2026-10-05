@@ -66,12 +66,19 @@ function dashboard(){
   const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
   const divisions=[...new Set(projects.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))];
   const needsImportRepair=funds.reduce((s,f)=>s+num(f.budget),0)===0||(!metas.length&&projects.length>0);
+  const activityProject=Object.fromEntries(activities.map(a=>[a.id,a.projectId]));
   const divisionRows=divisions.map(division=>{
     const ps=projects.filter(p=>(metaMap[p.id]||"ไม่ระบุฝ่าย")===division),ids=new Set(ps.map(p=>p.id));
     const db=ps.reduce((s,p)=>s+num(p.budget),0);
     const ds=expenses.filter(e=>ids.has(e.projectId)).reduce((s,e)=>s+num(e.amount),0);
     const dr=requests.filter(r=>ids.has(r.projectId)&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
-    return{division,budget:db,spent:ds,reserved:dr,available:db-ds-dr};
+    const byFund=fundOrder.map(type=>{
+      const fb=funds.filter(f=>f.fundType===type&&ids.has(activityProject[f.activityId])).reduce((s,f)=>s+num(f.budget),0);
+      const paid=requests.filter(r=>ids.has(r.projectId)&&r.fundType===type&&r.status==="paid").reduce((s,r)=>s+num(r.paidAmount||r.totalAmount),0);
+      const hold=requests.filter(r=>ids.has(r.projectId)&&r.fundType===type&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
+      return{type,label:fundLabels[type],budget:fb,paid,reserved:hold,available:fb-paid-hold};
+    });
+    return{division,budget:db,spent:ds,reserved:dr,available:db-ds-dr,byFund};
   }).sort((a,b)=>b.budget-a.budget);
 
   $("#content").innerHTML=`${needsImportRepair&&projects.length?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><div class="toolbar" style="margin:0"><div><strong>ข้อมูลประเภทเงิน/ฝ่ายยังไม่ครบ</strong><p class="muted" style="margin:3px 0 0">โครงการถูกนำเข้าแล้ว แต่ข้อมูลแยกประเภทเงินหรือฝ่ายยังไม่ได้ผูกกับโครงการเดิม กรุณานำเข้าไฟล์ Excel ต้นแบบเดิมอีกครั้ง ระบบจะอัปเดตข้อมูลเดิม ไม่สร้างโครงการซ้ำ</p></div><button id="repairImportBtn" class="btn btn-primary"><i data-lucide="file-up"></i>นำเข้าเพื่อซ่อมข้อมูล</button></div></section>`:""}<section class="stats-grid">
@@ -100,12 +107,27 @@ function dashboard(){
 
   <section class="grid-2">
     <article class="panel">
-      <div class="panel-head"><div><h3>แยกตามฝ่าย</h3><p class="muted">สรุปงบ การใช้จ่าย และยอดรอเบิกของแต่ละฝ่าย</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>ฝ่าย</th><th class="num">งบ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>
-        ${divisionRows.length?divisionRows.map(x=>`<tr><td><strong>${esc(x.division)}</strong></td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num">${money(x.reserved)}</td><td class="num ${x.available<0?"negative":""}"><strong>${money(x.available)}</strong></td></tr>`).join(""):'<tr><td colspan="5" class="empty">ยังไม่มีข้อมูลฝ่าย</td></tr>'}
+      <div class="panel-head"><div><h3>แยกตามฝ่ายและประเภทเงิน</h3><p class="muted">แต่ละฝ่ายแสดงยอดรวม และรายละเอียดงบแต่ละประเภทเงิน</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>ฝ่าย / ประเภทเงิน</th><th class="num">งบ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>
+        ${divisionRows.length?divisionRows.map(x=>`
+          <tr style="background:#f8fafc">
+            <td><strong>${esc(x.division)}</strong></td>
+            <td class="num"><strong>${money(x.budget)}</strong></td>
+            <td class="num"><strong>${money(x.spent)}</strong></td>
+            <td class="num"><strong>${money(x.reserved)}</strong></td>
+            <td class="num ${x.available<0?"negative":""}"><strong>${money(x.available)}</strong></td>
+          </tr>
+          ${x.byFund.map(f=>`<tr>
+            <td><span style="display:inline-block;padding-left:22px">↳ ${esc(f.label)}</span></td>
+            <td class="num">${money(f.budget)}</td>
+            <td class="num">${money(f.paid)}</td>
+            <td class="num">${money(f.reserved)}</td>
+            <td class="num ${f.available<0?"negative":""}">${money(f.available)}</td>
+          </tr>`).join("")}
+        `).join(""):'<tr><td colspan="5" class="empty">ยังไม่มีข้อมูลฝ่าย</td></tr>'}
       </tbody></table></div>
     </article>
-    <article class="panel"><div class="panel-head"><div><h3>เปรียบเทียบงบตามฝ่าย</h3><p class="muted">งบประมาณ / จ่ายจริง / รอเบิก</p></div></div><div class="chart-wrap"><canvas id="divisionChart"></canvas></div></article>
+    <article class="panel"><div class="panel-head"><div><h3>โครงสร้างงบของแต่ละฝ่าย</h3><p class="muted">แยกประเภทเงินภายในแต่ละฝ่าย</p></div></div><div class="chart-wrap"><canvas id="divisionChart"></canvas></div></article>
   </section>
 
   <section class="panel"><div class="panel-head"><div><h3>สถานะงบประมาณรายโครงการ</h3></div></div><div class="table-wrap"><table><thead><tr><th>โครงการ</th><th>ผู้รับผิดชอบ</th><th class="num">งบ</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>ความคืบหน้า</th></tr></thead><tbody>
@@ -116,7 +138,7 @@ function dashboard(){
   state.charts.p=new Chart($("#projectChart"),{type:"bar",data:{labels:rows.slice(0,10).map(x=>x.code||x.name),datasets:[{label:"งบประมาณ",data:rows.slice(0,10).map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:6},{label:"รายจ่าย",data:rows.slice(0,10).map(x=>x.spent),backgroundColor:"rgba(217,119,6,.72)",borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
   state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["จ่ายจริง","รอเบิก","พร้อมใช้"],datasets:[{data:[spent,Math.max(reserved,0),Math.max(available,0)],backgroundColor:["#0f766e","#f59e0b","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
   state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
-  state.charts.d=new Chart($("#divisionChart"),{type:"bar",data:{labels:divisionRows.map(x=>x.division),datasets:[{label:"งบประมาณ",data:divisionRows.map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:5},{label:"จ่ายจริง",data:divisionRows.map(x=>x.spent),backgroundColor:"rgba(37,99,235,.72)",borderRadius:5},{label:"รอเบิก",data:divisionRows.map(x=>x.reserved),backgroundColor:"rgba(217,119,6,.72)",borderRadius:5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
+  state.charts.d=new Chart($("#divisionChart"),{type:"bar",data:{labels:divisionRows.map(x=>x.division),datasets:fundOrder.map((type,i)=>({label:fundLabels[type],data:divisionRows.map(x=>x.byFund.find(f=>f.type===type)?.budget||0),backgroundColor:["rgba(15,118,110,.76)","rgba(37,99,235,.76)","rgba(217,119,6,.76)","rgba(124,58,237,.76)"][i],borderRadius:4}))},options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}},plugins:{legend:{position:"bottom"}}}});
 }
 function panel(head,button,cols){return`<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหา...">${canEdit()?`<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>${button}</button>`:""}</div><div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody id="rows"></tbody></table></div></section>`}
 function projects(){
