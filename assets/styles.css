@@ -61,3 +61,12 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .activity-label svg{width:17px;height:17px}.activity-label span{color:var(--muted);font-size:.82rem}.activity-table{border-radius:0;border-left:0;border-right:0;border-bottom:0}
 .activity-table table{margin:0}.activity-table th{background:#f8fafc}.activity-empty{padding:16px}
 @media(max-width:900px){.division-head,.project-box-head{align-items:flex-start;flex-direction:column}.division-totals,.project-summary{justify-content:flex-start}.project-summary{width:100%}}
+
+.division-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;margin-bottom:4px;scrollbar-width:thin}
+.division-tab{border:1px solid var(--line);background:#fff;color:#475569;border-radius:999px;padding:9px 13px;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;cursor:pointer;font-family:inherit;font-size:.92rem;transition:.18s ease}
+.division-tab:hover{border-color:#99d5cf;background:#f0fdfa;color:#0f766e}
+.division-tab.active{border-color:#0f766e;background:#0f766e;color:#fff;box-shadow:0 5px 14px rgba(15,118,110,.15)}
+.division-tab small{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 6px;border-radius:999px;background:#f1f5f9;color:#475569;font-size:.75rem}
+.division-tab.active small{background:rgba(255,255,255,.2);color:#fff}
+.division-tab-content{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff}
+@media(max-width:760px){.division-tabs{margin-left:-4px;margin-right:-4px}.division-tab{padding:8px 11px;font-size:.86rem}}
