@@ -12,10 +12,10 @@ function requestStatusBadge(s){
   return `<span class="badge request-${x[1]}">${esc(x[0])}</span>`;
 }
 async function requests(){
-  if(!REQUEST_ROLES.includes(state.user?.role)){state.route="dashboard";return render()}
+  if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const d=await api("/api/requests?scope=mine"),canNew=["admin","planner","teacher"].includes(state.user.role);
+    const d=await api("/api/requests?scope=mine"),canNew=hasAnyRole(["admin","planner","teacher"]);
     $("#content").innerHTML=`
       <section class="panel">
         <div class="toolbar"><div><strong>รายการขอเบิกของฉัน</strong><p class="muted request-sub">ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้</p></div>
@@ -109,7 +109,7 @@ async function cancelRequest(id){
   try{await api("/api/requests",{method:"PUT",body:JSON.stringify({id,action:"cancel"})});requests()}catch(e){err(e)}
 }
 async function procurementQueue(){
-  if(!["admin","procurement"].includes(state.user?.role)){state.route="dashboard";return render()}
+  if(!hasAnyRole(["admin","procurement"])){state.route="dashboard";return render()}
   try{
     const d=await api("/api/requests?scope=procurement");
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอพัสดุดำเนินการ</h3><p class="muted">ตรวจคำขอ จัดทำชุดเบิกจ่าย และส่งต่อเจ้าหน้าที่การเงิน</p></div></div>
@@ -131,7 +131,7 @@ async function procurementAction(id,action){
   try{await api("/api/requests",{method:"PUT",body:JSON.stringify({id,action,...r.value})});procurementQueue();Swal.fire({icon:"success",title:"ส่งให้การเงินแล้ว",timer:900,showConfirmButton:false})}catch(e){err(e)}
 }
 async function financeQueue(){
-  if(!["admin","finance"].includes(state.user?.role)){state.route="dashboard";return render()}
+  if(!hasAnyRole(["admin","finance"])){state.route="dashboard";return render()}
   try{
     const d=await api("/api/requests?scope=finance");
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอจ่ายเงิน</h3><p class="muted">เมื่อบันทึกจ่ายแล้ว ระบบจะลงรายจ่ายจริงให้โครงการและกิจกรรมอัตโนมัติ</p></div></div>
