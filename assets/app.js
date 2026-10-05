@@ -42,18 +42,79 @@ function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.ch
 function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
-  const {projects,expenses}=filtered(),budget=projects.reduce((s,p)=>s+num(p.budget),0),spent=expenses.reduce((s,e)=>s+num(e.amount),0),balance=budget-spent,pct=budget?spent/budget*100:0;
+  const {projects,activities,expenses}=filtered();
+  const projectIds=new Set(projects.map(p=>p.id)),activityIds=new Set(activities.map(a=>a.id));
+  const metas=(state.data.projectMeta||[]).filter(x=>projectIds.has(x.projectId));
+  const funds=(state.data.activityFunds||[]).filter(x=>activityIds.has(x.activityId));
+  const requests=(state.data.requests||[]).filter(x=>projectIds.has(x.projectId));
+  const pendingStatuses=new Set(["submitted","procurement","finance"]);
+  const budget=projects.reduce((s,p)=>s+num(p.budget),0);
+  const spent=expenses.reduce((s,e)=>s+num(e.amount),0);
+  const reserved=requests.filter(r=>pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
+  const available=budget-spent-reserved,pct=budget?spent/budget*100:0;
   const rows=projects.map(p=>({...p,...pstat(p,expenses)})).sort((a,b)=>(b.budget?b.spent/b.budget:0)-(a.budget?a.spent/a.budget:0));
+
+  const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่น ๆ"};
+  const fundOrder=["subsidy","activity","income","other"];
+  const fundRows=fundOrder.map(type=>{
+    const fb=funds.filter(f=>f.fundType===type).reduce((s,f)=>s+num(f.budget),0);
+    const paid=requests.filter(r=>r.fundType===type&&r.status==="paid").reduce((s,r)=>s+num(r.paidAmount||r.totalAmount),0);
+    const hold=requests.filter(r=>r.fundType===type&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
+    return{type,label:fundLabels[type],budget:fb,paid,reserved:hold,available:fb-paid-hold};
+  });
+
+  const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
+  const divisions=[...new Set(projects.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))];
+  const divisionRows=divisions.map(division=>{
+    const ps=projects.filter(p=>(metaMap[p.id]||"ไม่ระบุฝ่าย")===division),ids=new Set(ps.map(p=>p.id));
+    const db=ps.reduce((s,p)=>s+num(p.budget),0);
+    const ds=expenses.filter(e=>ids.has(e.projectId)).reduce((s,e)=>s+num(e.amount),0);
+    const dr=requests.filter(r=>ids.has(r.projectId)&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
+    return{division,budget:db,spent:ds,reserved:dr,available:db-ds-dr};
+  }).sort((a,b)=>b.budget-a.budget);
+
   $("#content").innerHTML=`<section class="stats-grid">
-    ${[["wallet-cards","งบโครงการทั้งหมด",money(budget)],["badge-dollar-sign","รายจ่ายทั้งหมด",money(spent)],["piggy-bank","เงินคงเหลือ",money(balance)],["gauge","ใช้จ่ายแล้ว",pct.toFixed(1)+"%"]].map(x=>`<article class="stat-card"><span class="stat-icon"><i data-lucide="${x[0]}"></i></span><div><small>${x[1]}</small><strong>${x[2]}</strong></div></article>`).join("")}
+    ${[
+      ["wallet-cards","งบประมาณทั้งหมด",money(budget)],
+      ["badge-dollar-sign","จ่ายจริงแล้ว",money(spent)],
+      ["clock-3","รอเบิก / ผูกพัน",money(reserved)],
+      ["piggy-bank","พร้อมใช้",money(available)]
+    ].map(x=>`<article class="stat-card"><span class="stat-icon"><i data-lucide="${x[0]}"></i></span><div><small>${x[1]}</small><strong>${x[2]}</strong></div></article>`).join("")}
   </section>
-  <section class="grid-2"><article class="panel"><div class="panel-head"><div><h3>งบประมาณเทียบรายจ่าย</h3><p class="muted">แยกตามโครงการ</p></div></div><div class="chart-wrap"><canvas id="projectChart"></canvas></div></article>
-  <article class="panel"><div class="panel-head"><div><h3>สัดส่วนการใช้จ่าย</h3><p class="muted">รายจ่ายและเงินคงเหลือ</p></div></div><div class="chart-wrap"><canvas id="usageChart"></canvas></div></article></section>
+
+  <section class="grid-2">
+    <article class="panel"><div class="panel-head"><div><h3>งบประมาณเทียบรายจ่าย</h3><p class="muted">แยกตามโครงการ</p></div></div><div class="chart-wrap"><canvas id="projectChart"></canvas></div></article>
+    <article class="panel"><div class="panel-head"><div><h3>สัดส่วนการใช้จ่าย</h3><p class="muted">จ่ายจริง ${pct.toFixed(1)}% ของงบทั้งหมด</p></div></div><div class="chart-wrap"><canvas id="usageChart"></canvas></div></article>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <div class="panel-head"><div><h3>แยกตามประเภทเงิน</h3><p class="muted">ยอดจ่ายแล้วส่วนนี้อ้างอิงรายการขอเบิกที่การเงินลงจ่ายแล้ว</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>ประเภทเงิน</th><th class="num">งบ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>
+        ${fundRows.map(x=>`<tr><td><strong>${esc(x.label)}</strong></td><td class="num">${money(x.budget)}</td><td class="num">${money(x.paid)}</td><td class="num">${money(x.reserved)}</td><td class="num ${x.available<0?"negative":""}"><strong>${money(x.available)}</strong></td></tr>`).join("")}
+      </tbody></table></div>
+    </article>
+    <article class="panel"><div class="panel-head"><div><h3>สัดส่วนงบตามประเภทเงิน</h3><p class="muted">งบดำเนินงานที่นำเข้าจากกิจกรรม</p></div></div><div class="chart-wrap"><canvas id="fundChart"></canvas></div></article>
+  </section>
+
+  <section class="grid-2">
+    <article class="panel">
+      <div class="panel-head"><div><h3>แยกตามฝ่าย</h3><p class="muted">สรุปงบ การใช้จ่าย และยอดรอเบิกของแต่ละฝ่าย</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>ฝ่าย</th><th class="num">งบ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>
+        ${divisionRows.length?divisionRows.map(x=>`<tr><td><strong>${esc(x.division)}</strong></td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num">${money(x.reserved)}</td><td class="num ${x.available<0?"negative":""}"><strong>${money(x.available)}</strong></td></tr>`).join(""):'<tr><td colspan="5" class="empty">ยังไม่มีข้อมูลฝ่าย</td></tr>'}
+      </tbody></table></div>
+    </article>
+    <article class="panel"><div class="panel-head"><div><h3>เปรียบเทียบงบตามฝ่าย</h3><p class="muted">งบประมาณ / จ่ายจริง / รอเบิก</p></div></div><div class="chart-wrap"><canvas id="divisionChart"></canvas></div></article>
+  </section>
+
   <section class="panel"><div class="panel-head"><div><h3>สถานะงบประมาณรายโครงการ</h3></div></div><div class="table-wrap"><table><thead><tr><th>โครงการ</th><th>ผู้รับผิดชอบ</th><th class="num">งบ</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>ความคืบหน้า</th></tr></thead><tbody>
-  ${rows.length?rows.map(p=>{const pc=p.budget?p.spent/p.budget*100:0;return`<tr><td><strong>${esc(p.code)}</strong><br>${esc(p.name)}</td><td>${esc(p.owner)}</td><td class="num">${money(p.budget)}</td><td class="num">${money(p.spent)}</td><td class="num ${p.balance<0?"negative":""}">${money(p.balance)}</td><td><div class="progress"><div class="progress-track"><div class="progress-bar" style="width:${Math.min(pc,100)}%"></div></div><span>${pc.toFixed(0)}%</span></div></td></tr>`}).join(""):`<tr><td colspan="6" class="empty">ยังไม่มีข้อมูลโครงการ</td></tr>`}
+    ${rows.length?rows.map(p=>{const pc=p.budget?p.spent/p.budget*100:0;return`<tr><td><strong>${esc(p.code)}</strong><br>${esc(p.name)}</td><td>${esc(p.owner)}</td><td class="num">${money(p.budget)}</td><td class="num">${money(p.spent)}</td><td class="num ${p.balance<0?"negative":""}">${money(p.balance)}</td><td><div class="progress"><div class="progress-track"><div class="progress-bar" style="width:${Math.min(pc,100)}%"></div></div><span>${pc.toFixed(0)}%</span></div></td></tr>`}).join(""):`<tr><td colspan="6" class="empty">ยังไม่มีข้อมูลโครงการ</td></tr>`}
   </tbody></table></div></section>`;
+
   state.charts.p=new Chart($("#projectChart"),{type:"bar",data:{labels:rows.slice(0,10).map(x=>x.code||x.name),datasets:[{label:"งบประมาณ",data:rows.slice(0,10).map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:6},{label:"รายจ่าย",data:rows.slice(0,10).map(x=>x.spent),backgroundColor:"rgba(217,119,6,.72)",borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
-  state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["รายจ่าย","คงเหลือ"],datasets:[{data:[spent,Math.max(balance,0)],backgroundColor:["#0f766e","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
+  state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["จ่ายจริง","รอเบิก","พร้อมใช้"],datasets:[{data:[spent,Math.max(reserved,0),Math.max(available,0)],backgroundColor:["#0f766e","#f59e0b","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
+  state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
+  state.charts.d=new Chart($("#divisionChart"),{type:"bar",data:{labels:divisionRows.map(x=>x.division),datasets:[{label:"งบประมาณ",data:divisionRows.map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:5},{label:"จ่ายจริง",data:divisionRows.map(x=>x.spent),backgroundColor:"rgba(37,99,235,.72)",borderRadius:5},{label:"รอเบิก",data:divisionRows.map(x=>x.reserved),backgroundColor:"rgba(217,119,6,.72)",borderRadius:5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
 }
 function panel(head,button,cols){return`<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหา...">${canEdit()?`<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>${button}</button>`:""}</div><div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody id="rows"></tbody></table></div></section>`}
 function projects(){
