@@ -194,11 +194,11 @@ function projects(){
       <div class="project-stack">
         ${dProjects.map(p=>{
           const s=pstat(p,ex),acts=as.filter(a=>a.projectId===p.id);
-          return `<article class="project-box">
+          return `<article class="project-box ${divisionTone(activeDivision)}">
             <div class="project-box-head">
               <div class="project-main">
                 <div class="project-code">${esc(p.code)}</div>
-                <div class="project-name-wrap ${divisionTone(activeDivision)}"><h4>${esc(p.name)}</h4><p>ผู้รับผิดชอบ: ${esc(p.owner||"-")}</p></div>
+                <div class="project-name-wrap"><h4>${esc(p.name)}</h4><p>ผู้รับผิดชอบ: ${esc(p.owner||"-")}</p></div>
               </div>
               <div class="project-summary">
                 <span>งบ <strong>${money(s.budget)}</strong></span>
