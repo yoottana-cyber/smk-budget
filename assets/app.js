@@ -148,6 +148,15 @@ function projects(){
   const allDivisions=[...new Set(ps.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))];
   let activeDivision=allDivisions[0]||"";
   const openActivities=new Set();
+  const divisionTone=division=>{
+    const d=String(division||"");
+    if(d.includes("วิชาการ"))return "tone-academic";
+    if(d.includes("งบประมาณ"))return "tone-budget";
+    if(d.includes("บุคคล"))return "tone-personnel";
+    if(d.includes("กิจการนักเรียน"))return "tone-student";
+    if(d.includes("บริหารทั่วไป"))return "tone-general";
+    return "tone-default";
+  };
   $("#content").innerHTML=`<section class="panel">
     <div class="toolbar">
       <input id="search" class="search" placeholder="ค้นหาโครงการ กิจกรรม หรือผู้รับผิดชอบ">
@@ -189,7 +198,7 @@ function projects(){
             <div class="project-box-head">
               <div class="project-main">
                 <div class="project-code">${esc(p.code)}</div>
-                <div><h4>${esc(p.name)}</h4><p>ผู้รับผิดชอบ: ${esc(p.owner||"-")}</p></div>
+                <div class="project-name-wrap ${divisionTone(activeDivision)}"><h4>${esc(p.name)}</h4><p>ผู้รับผิดชอบ: ${esc(p.owner||"-")}</p></div>
               </div>
               <div class="project-summary">
                 <span>งบ <strong>${money(s.budget)}</strong></span>
