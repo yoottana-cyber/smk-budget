@@ -127,7 +127,7 @@ export async function onRequest(ctx){
         }
 
         if(sheet==="Activities"){
-          const g=await listMany(env,["Projects","Activities","Expenses"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses;
+          const g=await listMany(env,["Projects","Activities","Expenses","Requests"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses,reqs=g.Requests;
           const prj=projects.find(x=>x.id===d.projectId);if(!prj)return bad("ไม่พบโครงการที่เลือก",409);
           const allocated=acts.filter(x=>x.projectId===d.projectId && x.id!==d.id).reduce((s,x)=>s+amount(x.budget),0)+amount(d.budget);
           if(allocated>amount(prj.budget))return bad(`งบกิจกรรมรวมเกินงบโครงการ ${amount(prj.budget).toLocaleString("th-TH")} บาท`,409);
@@ -135,8 +135,13 @@ export async function onRequest(ctx){
         }
 
         if(sheet==="Expenses"){
-          const g=await listMany(env,["Projects","Activities","Expenses"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses;
+          const g=await listMany(env,["Projects","Activities","Expenses","Requests"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses,reqs=g.Requests;
           const prj=projects.find(x=>x.id===d.projectId);if(!prj)return bad("ไม่พบโครงการที่เลือก",409);
+          if(method==="POST"&&!String(d.docNo||"").trim()){
+            const sameYearIds=new Set(projects.filter(p=>String(p.fiscalYear||"")===String(prj.fiscalYear||"")).map(p=>p.id));
+            const maxDoc=exps.filter(e=>sameYearIds.has(e.projectId)).reduce((m,e)=>{const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);return x?Math.max(m,Number(x[1])||0):m},0);
+            d.docNo="บจ."+(maxDoc+1);
+          }
           if(amount(d.amount)<=0)return bad("จำนวนเงินต้องมากกว่า 0");
           const otherProjectSpent=exps.filter(x=>x.projectId===d.projectId && x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
           if(otherProjectSpent+amount(d.amount)>amount(prj.budget))return bad(`รายการนี้ทำให้รายจ่ายเกินงบโครงการ เหลืองบ ${Math.max(amount(prj.budget)-otherProjectSpent,0).toLocaleString("th-TH")} บาท`,409);
@@ -148,7 +153,15 @@ export async function onRequest(ctx){
         }
 
         if(method==="POST"){const row={...d,createdAt:now,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})};await append(env,sheet,row);return json({ok:true,row},201)}
-        if(!d.id)return bad("ไม่พบรหัสข้อมูล");const row=await update(env,sheet,d.id,{...d,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})});return json({ok:true,row});
+        if(!d.id)return bad("ไม่พบรหัสข้อมูล");
+        const row=await update(env,sheet,d.id,{...d,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})});
+        if(sheet==="Expenses"){
+          const g=await listMany(env,["Requests"]),reqs=g.Requests;
+          const reqNo=(String(row.note||"").match(/REQ-\d{4}-\d{4}/)||String(row.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0];
+          const linked=reqNo?reqs.find(x=>x.requestNo===reqNo):null;
+          if(linked&&String(linked.paymentDocNo||"")!==String(row.docNo||""))await update(env,"Requests",linked.id,{paymentDocNo:String(row.docNo||"").trim(),updatedAt:now});
+        }
+        return json({ok:true,row});
       }
       if(method==="DELETE"){
         const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
