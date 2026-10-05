@@ -16,16 +16,27 @@ function availableFor(requests,fund,excludeId=""){
   const reserved=requests.filter(r=>r.id!==excludeId&&r.activityId===fund.activityId&&r.fundType===fund.fundType&&PENDING_STATUSES.includes(r.status)).reduce((s,r)=>s+amount(r.totalAmount),0);
   return Math.max(amount(fund.budget)-paid-reserved,0);
 }
+function nextExpenseDocNo(expenses,projects,fiscalYear){
+  const ids=new Set(projects.filter(p=>String(p.fiscalYear||"")===String(fiscalYear||"")).map(p=>p.id));
+  const max=expenses.filter(e=>!ids.size||ids.has(e.projectId)).reduce((m,e)=>{
+    const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);
+    return x?Math.max(m,Number(x[1])||0):m;
+  },0);
+  return "บจ."+(max+1);
+}
 export async function onRequestGet(ctx){
   try{
     await ensureExtra(ctx.env);
     const a=await auth(ctx,allowedRoles);if(a.error)return bad("ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
-    const [requests,items,projects,activities,funds,metas,settings]=await loadAll(ctx.env);
+    const [requests,items,projects,activities,funds,metas,settings,expenses]=await loadAll(ctx.env);
     const url=new URL(ctx.request.url),scope=url.searchParams.get("scope")||"mine",id=url.searchParams.get("id")||"";
     if(scope==="detail"){
       const r=requests.find(x=>x.id===id);if(!r||!canSee(a.u,r))return bad("ไม่พบคำขอ",404);
       const meta=metas.find(x=>x.projectId===r.projectId);
-      return json({request:enrich([r],projects,activities)[0],items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value]))});
+      const paidExpense=expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
+      const enriched=enrich([r],projects,activities)[0];
+      if(paidExpense?.docNo)enriched.paymentDocNo=paidExpense.docNo;
+      return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value]))});
     }
     let rows=[];
     if(scope==="mine")rows=requests.filter(r=>r.requesterUserId===a.u.id);
@@ -95,9 +106,10 @@ export async function onRequestPut(ctx){
       if(!d.paymentDate)return bad("กรุณาระบุวันที่จ่ายเงิน");
       const fund=funds.find(x=>x.activityId===r.activityId&&x.fundType===r.fundType);if(!fund)return bad("ไม่พบข้อมูลงบกิจกรรม");
       const available=availableFor(requests,fund,r.id);if(paid>available)return bad("ยอดจ่ายทำให้งบประเภทเงินนี้ติดลบ",409);
-      const paidReq=await update(ctx.env,"Requests",r.id,{status:"paid",paymentDate:d.paymentDate,paymentDocNo:String(d.paymentDocNo||"").trim(),paidAmount:paid,financeNote:String(d.note||"").trim(),financeBy:a.u.displayName,updatedAt:now});
       const p=projects.find(x=>x.id===r.projectId),act=activities.find(x=>x.id===r.activityId);
-      await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:String(d.paymentDocNo||r.requestNo),description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now});
+      const paymentDocNo=String(d.paymentDocNo||"").trim()||nextExpenseDocNo(expenses,projects,p?.fiscalYear||r.fiscalYear);
+      const paidReq=await update(ctx.env,"Requests",r.id,{status:"paid",paymentDate:d.paymentDate,paymentDocNo,paidAmount:paid,financeNote:String(d.note||"").trim(),financeBy:a.u.displayName,updatedAt:now});
+      await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:paymentDocNo,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now});
       return json({ok:true,request:paidReq});
     }
     return bad("ไม่รู้จักคำสั่ง");
