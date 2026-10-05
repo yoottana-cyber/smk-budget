@@ -90,3 +90,23 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .project-name-wrap.tone-student{background:#ede9fe}
 .project-name-wrap.tone-general{background:#fef9c3}
 .project-name-wrap.tone-default{background:#f8fafc}
+
+/* สีทั้งการ์ดโครงการตามฝ่าย */
+.project-box.tone-academic{background:#dcfce7;border-color:#bbf7d0}
+.project-box.tone-budget{background:#dbeafe;border-color:#bfdbfe}
+.project-box.tone-personnel{background:#fce7f3;border-color:#fbcfe8}
+.project-box.tone-student{background:#ede9fe;border-color:#ddd6fe}
+.project-box.tone-general{background:#fef9c3;border-color:#fef08a}
+.project-box.tone-default{background:#f8fafc;border-color:#e2e8f0}
+
+.project-box[class*="tone-"] .project-box-head,
+.project-box[class*="tone-"] .activity-block,
+.project-box[class*="tone-"] .activity-toggle{background:transparent}
+
+.project-box[class*="tone-"] .project-name-wrap{background:transparent;padding:2px 0}
+.project-box[class*="tone-"] .project-code{background:rgba(255,255,255,.72)}
+.project-box[class*="tone-"] .activity-block{border-top-color:rgba(100,116,139,.18)}
+.project-box[class*="tone-"] .activity-toggle:hover{background:rgba(255,255,255,.32)}
+.project-box[class*="tone-"] .activity-table{background:rgba(255,255,255,.78)}
+.project-box[class*="tone-"] .activity-table th{background:rgba(248,250,252,.92)}
+.project-box[class*="tone-"] .activity-table td{background:rgba(255,255,255,.72)}
