@@ -15,22 +15,26 @@ function b64t(s){return b64u(enc.encode(s))}
 function from64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
 async function sha(s){const h=await crypto.subtle.digest("SHA-256",enc.encode(s));return[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("")}
 
+let googleTokenCache={token:"",exp:0};
 async function gtoken(env){
-  const sa=JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),now=Math.floor(Date.now()/1000);
+  const nowSec=Math.floor(Date.now()/1000);if(googleTokenCache.token&&googleTokenCache.exp-nowSec>120)return googleTokenCache.token;
+  const sa=JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),now=nowSec;
   const h=b64t(JSON.stringify({alg:"RS256",typ:"JWT"})),c=b64t(JSON.stringify({iss:sa.client_email,scope:"https://www.googleapis.com/auth/spreadsheets",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})),input=`${h}.${c}`;
   const key=await crypto.subtle.importKey("pkcs8",pem(sa.private_key),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,enc.encode(input));
   const r=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",assertion:`${input}.${b64u(sig)}`})}),j=await r.json();
-  if(!r.ok)throw new Error(j.error_description||j.error||"Google auth error");return j.access_token;
+  if(!r.ok)throw new Error(j.error_description||j.error||"Google auth error");googleTokenCache={token:j.access_token,exp:now+Number(j.expires_in||3600)};return j.access_token;
 }
 async function gf(env,path,opt={}){
   const t=await gtoken(env),r=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${env.SHEET_ID}${path}`,{...opt,headers:{authorization:`Bearer ${t}`,"content-type":"application/json",...(opt.headers||{})}}),j=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(j.error?.message||`Sheets API ${r.status}`);return j;
 }
 async function values(env,range){return(await gf(env,`/values/${encodeURIComponent(range)}?majorDimension=ROWS`)).values||[]}
+async function batchValues(env,ranges){if(!ranges.length)return[];const q=ranges.map(x=>"ranges="+encodeURIComponent(x)).join("&"),j=await gf(env,"/values:batchGet?majorDimension=ROWS&"+q);return(j.valueRanges||[]).map(x=>x.values||[])}
 async function put(env,range,vals){return gf(env,`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{method:"PUT",body:JSON.stringify({values:vals})})}
 async function append(env,sheet,obj){const h=SCHEMA[sheet];return gf(env,`/values/${encodeURIComponent(sheet+"!A:"+col(h.length))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,{method:"POST",body:JSON.stringify({values:[h.map(k=>obj[k]??"")]})})}
 async function list(env,sheet){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`);return r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])))}
+async function listMany(env,sheets){const ranges=sheets.map(sheet=>`${sheet}!A:${col(SCHEMA[sheet].length)}`),groups=await batchValues(env,ranges),out={};sheets.forEach((sheet,idx)=>{const h=SCHEMA[sheet],r=groups[idx]||[];out[sheet]=r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])))});return out}
 async function update(env,sheet,id,obj){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`),i=r.findIndex((x,n)=>n>0&&x[0]===id);if(i<1)throw new Error("ไม่พบข้อมูล");const old=Object.fromEntries(h.map((k,j)=>[k,r[i][j]??""])),m={...old,...obj,id};await put(env,`${sheet}!A${i+1}:${col(h.length)}${i+1}`,[h.map(k=>m[k]??"")]);return m}
 async function del(env,sheet,id){const meta=await gf(env,"?fields=sheets.properties"),p=(meta.sheets||[]).find(x=>x.properties.title===sheet)?.properties,r=await values(env,`${sheet}!A:A`),i=r.findIndex((x,n)=>n>0&&x[0]===id);if(!p||i<1)throw new Error("ไม่พบข้อมูล");return gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:[{deleteDimension:{range:{sheetId:p.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1}}}]})})}
 async function ensure(env){
@@ -41,7 +45,10 @@ async function ensure(env){
 async function hsign(data,secret){const k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return new Uint8Array(await crypto.subtle.sign("HMAC",k,enc.encode(data)))}
 async function token(user,secret){const h=b64t(JSON.stringify({alg:"HS256",typ:"JWT"})),p=b64t(JSON.stringify({...user,exp:Math.floor(Date.now()/1000)+28800})),d=`${h}.${p}`;return`${d}.${b64u(await hsign(d,secret))}`}
 async function verify(t,secret){try{const[h,p,s]=t.split("."),k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["verify"]),ok=await crypto.subtle.verify("HMAC",k,from64(s),enc.encode(`${h}.${p}`));if(!ok)return null;const u=JSON.parse(new TextDecoder().decode(from64(p)));return u.exp>Math.floor(Date.now()/1000)?u:null}catch{return null}}
-async function user(ctx,roles=[]){const a=ctx.request.headers.get("authorization")||"",t=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);if(!t)return{error:"UNAUTHORIZED"};const us=await list(ctx.env,"Users"),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};const u={id:row.id,username:row.username,role:row.role,displayName:row.displayName};if(roles.length&&!roles.includes(u.role))return{error:"FORBIDDEN",u};return{u}}
+let usersCache={rows:null,exp:0};
+async function usersList(env,force=false){if(!force&&usersCache.rows&&Date.now()<usersCache.exp)return usersCache.rows;const rows=await list(env,"Users");usersCache={rows,exp:Date.now()+15000};return rows}
+function clearUsersCache(){usersCache={rows:null,exp:0}}
+async function user(ctx,roles=[]){const a=ctx.request.headers.get("authorization")||"",t=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);if(!t)return{error:"UNAUTHORIZED"};const us=await usersList(ctx.env),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};const u={id:row.id,username:row.username,role:row.role,displayName:row.displayName};if(roles.length&&!roles.includes(u.role))return{error:"FORBIDDEN",u};return{u}}
 const roleStatus=x=>x==="FORBIDDEN"?403:401;
 
 export async function onRequest(ctx){
@@ -50,23 +57,23 @@ export async function onRequest(ctx){
 
     if(path==="setup"&&method==="POST"){
       const d=await body(ctx.request);if(!env.SETUP_KEY||d.setupKey!==env.SETUP_KEY)return bad("Setup key ไม่ถูกต้อง",403);await ensure(env);
-      const us=await list(env,"Users");if(!us.length){if(!env.ADMIN_USERNAME||!env.ADMIN_PASSWORD)return bad("ยังไม่ได้ตั้ง ADMIN_USERNAME / ADMIN_PASSWORD",500);await append(env,"Users",{id:`usr_${crypto.randomUUID()}`,username:env.ADMIN_USERNAME,passwordHash:await sha(`${env.PASSWORD_PEPPER}:${env.ADMIN_PASSWORD}`),role:"admin",displayName:"ผู้ดูแลระบบ",status:"active",createdAt:new Date().toISOString()})}
+      const us=await usersList(env,true);if(!us.length){if(!env.ADMIN_USERNAME||!env.ADMIN_PASSWORD)return bad("ยังไม่ได้ตั้ง ADMIN_USERNAME / ADMIN_PASSWORD",500);await append(env,"Users",{id:`usr_${crypto.randomUUID()}`,username:env.ADMIN_USERNAME,passwordHash:await sha(`${env.PASSWORD_PEPPER}:${env.ADMIN_PASSWORD}`),role:"admin",displayName:"ผู้ดูแลระบบ",status:"active",createdAt:new Date().toISOString()})}
       return json({ok:true,message:"Setup เรียบร้อย"});
     }
 
     if(path==="login"&&method==="POST"){
-      const d=await body(ctx.request),us=await list(env,"Users"),u=us.find(x=>x.username===d.username&&x.status==="active");if(!u||u.passwordHash!==await sha(`${env.PASSWORD_PEPPER}:${d.password}`))return bad("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",401);
+      const d=await body(ctx.request),us=await usersList(env),u=us.find(x=>x.username===d.username&&x.status==="active");if(!u||u.passwordHash!==await sha(`${env.PASSWORD_PEPPER}:${d.password}`))return bad("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",401);
       const safe={id:u.id,username:u.username,role:u.role,displayName:u.displayName};return json({token:await token(safe,env.JWT_SECRET),user:safe});
     }
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
-    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const[projects,activities,expenses]=await Promise.all([list(env,"Projects"),list(env,"Activities"),list(env,"Expenses")]);return json({projects,activities,expenses})}
+    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses"]);return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses})}
 
     if(path==="users"){
       const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
       const roles=["admin","planner","teacher","procurement","finance","viewer"],statuses=["active","inactive"];
       if(method==="GET"){
-        const us=await list(env,"Users");
+        const us=await usersList(env);
         return json({users:us.map(x=>({id:x.id,username:x.username,role:x.role,displayName:x.displayName,status:x.status,createdAt:x.createdAt})).sort((x,y)=>x.username.localeCompare(y.username))});
       }
       if(method==="POST"){
@@ -75,21 +82,21 @@ export async function onRequest(ctx){
         if(!displayName)return bad("กรุณากรอกชื่อที่แสดง");
         if(password.length<6)return bad("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
         if(!roles.includes(role)||!statuses.includes(status))return bad("สิทธิ์หรือสถานะไม่ถูกต้อง");
-        const us=await list(env,"Users");if(us.some(x=>x.username.toLowerCase()===username.toLowerCase()))return bad("ชื่อผู้ใช้นี้มีอยู่แล้ว",409);
+        const us=await usersList(env);if(us.some(x=>x.username.toLowerCase()===username.toLowerCase()))return bad("ชื่อผู้ใช้นี้มีอยู่แล้ว",409);
         const row={id:`usr_${crypto.randomUUID()}`,username,passwordHash:await sha(`${env.PASSWORD_PEPPER}:${password}`),role,displayName,status,createdAt:new Date().toISOString()};
-        await append(env,"Users",row);
+        await append(env,"Users",row);clearUsersCache();
         return json({ok:true,user:{id:row.id,username:row.username,role:row.role,displayName:row.displayName,status:row.status,createdAt:row.createdAt}},201);
       }
       if(method==="PUT"){
         const d=await body(ctx.request);if(!d.id)return bad("ไม่พบรหัสผู้ใช้งาน");
-        const us=await list(env,"Users"),old=us.find(x=>x.id===d.id);if(!old)return bad("ไม่พบผู้ใช้งาน",404);
+        const us=await usersList(env),old=us.find(x=>x.id===d.id);if(!old)return bad("ไม่พบผู้ใช้งาน",404);
         const patch={};
         if(d.displayName!==undefined){const v=String(d.displayName||"").trim();if(!v)return bad("ชื่อที่แสดงห้ามว่าง");patch.displayName=v}
         if(d.role!==undefined){if(!roles.includes(d.role))return bad("สิทธิ์ไม่ถูกต้อง");if(d.id===a.u.id&&d.role!=="admin")return bad("ไม่สามารถลดสิทธิ์บัญชีที่กำลังใช้งานอยู่",409);patch.role=d.role}
         if(d.status!==undefined){if(!statuses.includes(d.status))return bad("สถานะไม่ถูกต้อง");if(d.id===a.u.id&&d.status!=="active")return bad("ไม่สามารถปิดบัญชีที่กำลังใช้งานอยู่",409);patch.status=d.status}
         if(d.password!==undefined){const p=String(d.password||"");if(p.length<6)return bad("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");patch.passwordHash=await sha(`${env.PASSWORD_PEPPER}:${p}`)}
         if(!Object.keys(patch).length)return bad("ไม่มีข้อมูลที่ต้องแก้ไข");
-        const row=await update(env,"Users",d.id,patch);
+        const row=await update(env,"Users",d.id,patch);clearUsersCache();
         return json({ok:true,user:{id:row.id,username:row.username,role:row.role,displayName:row.displayName,status:row.status,createdAt:row.createdAt}});
       }
       return bad("Method not allowed",405);
@@ -104,7 +111,7 @@ export async function onRequest(ctx){
 
         // Server-side budget guard: ป้องกันการแก้ข้อมูลจากหน้าเว็บแล้วทำให้งบติดลบ
         if(sheet==="Projects"){
-          const [acts,exps]=await Promise.all([list(env,"Activities"),list(env,"Expenses")]);
+          const g=await listMany(env,["Activities","Expenses"]),acts=g.Activities,exps=g.Expenses;
           const spent=exps.filter(x=>x.projectId===d.id).reduce((s,x)=>s+amount(x.amount),0);
           const allocated=acts.filter(x=>x.projectId===d.id).reduce((s,x)=>s+amount(x.budget),0);
           if(method==="PUT" && amount(d.budget)<spent)return bad(`งบโครงการต่ำกว่ายอดที่ใช้ไปแล้ว ${spent.toLocaleString("th-TH")} บาท`,409);
@@ -112,7 +119,7 @@ export async function onRequest(ctx){
         }
 
         if(sheet==="Activities"){
-          const [projects,acts,exps]=await Promise.all([list(env,"Projects"),list(env,"Activities"),list(env,"Expenses")]);
+          const g=await listMany(env,["Projects","Activities","Expenses"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses;
           const prj=projects.find(x=>x.id===d.projectId);if(!prj)return bad("ไม่พบโครงการที่เลือก",409);
           const allocated=acts.filter(x=>x.projectId===d.projectId && x.id!==d.id).reduce((s,x)=>s+amount(x.budget),0)+amount(d.budget);
           if(allocated>amount(prj.budget))return bad(`งบกิจกรรมรวมเกินงบโครงการ ${amount(prj.budget).toLocaleString("th-TH")} บาท`,409);
@@ -120,7 +127,7 @@ export async function onRequest(ctx){
         }
 
         if(sheet==="Expenses"){
-          const [projects,acts,exps]=await Promise.all([list(env,"Projects"),list(env,"Activities"),list(env,"Expenses")]);
+          const g=await listMany(env,["Projects","Activities","Expenses"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses;
           const prj=projects.find(x=>x.id===d.projectId);if(!prj)return bad("ไม่พบโครงการที่เลือก",409);
           if(amount(d.amount)<=0)return bad("จำนวนเงินต้องมากกว่า 0");
           const otherProjectSpent=exps.filter(x=>x.projectId===d.projectId && x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
@@ -138,7 +145,7 @@ export async function onRequest(ctx){
       if(method==="DELETE"){
         const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
         const id=new URL(ctx.request.url).searchParams.get("id");if(!id)return bad("ไม่พบรหัสข้อมูล");
-        if(sheet==="Projects"){const[as,es]=await Promise.all([list(env,"Activities"),list(env,"Expenses")]);if(as.some(x=>x.projectId===id)||es.some(x=>x.projectId===id))return bad("โครงการนี้มีข้อมูลกิจกรรมหรือรายจ่ายอยู่",409)}
+        if(sheet==="Projects"){const g=await listMany(env,["Activities","Expenses"]),as=g.Activities,es=g.Expenses;if(as.some(x=>x.projectId===id)||es.some(x=>x.projectId===id))return bad("โครงการนี้มีข้อมูลกิจกรรมหรือรายจ่ายอยู่",409)}
         if(sheet==="Activities"){const es=await list(env,"Expenses");if(es.some(x=>x.activityId===id))return bad("กิจกรรมนี้มีรายจ่ายอยู่",409)}
         await del(env,sheet,id);return json({ok:true});
       }
