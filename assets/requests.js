@@ -209,7 +209,6 @@ async function printRequest(id){
       <p class="indent">จึงเรียนมาเพื่อโปรดทราบและพิจารณา</p>
       <div class="signs"><div>ลงชื่อ ........................................................<br>(${esc(projectOwnerName)})<br>ผู้รับผิดชอบโครงการ</div><div>ลงชื่อ ........................................................<br>(${esc(s.financeOfficer||"")})<br>เจ้าหน้าที่การเงิน</div></div>
       <div class="director">เสนอ ผู้อำนวยการโรงเรียนสามัคคีศึกษา<br>☐ ทราบ/อนุมัติ<div class="director-sign">ลงชื่อ ........................................................<br>(${esc(s.directorName||"")})<br>${esc(s.directorTitle||"ผู้อำนวยการโรงเรียนสามัคคีศึกษา")}</div></div>
-      <p class="small">เลขที่คำขอ: ${esc(r.requestNo)} | สถานะ: ${esc((REQUEST_STATUS[r.status]||[r.status])[0])}</p>
     </div></body></html>`;
     w.document.open();w.document.write(html);w.document.close();
   }catch(e){if(w)w.close();err(e)}
