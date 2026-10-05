@@ -1,8 +1,8 @@
 
-import {ensureExtra,listMany,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
+import {ensureExtra,listMany,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
-const canSee=(u,r)=>["admin","planner","procurement","finance"].includes(u.role)||r.requesterUserId===u.id;
+const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
 async function loadAll(env){
   const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses"]);
   return[g.Requests,g.RequestItems,g.Projects,g.Activities,g.ActivityFunds,g.ProjectMeta,g.Settings,g.Expenses];
@@ -30,13 +30,13 @@ export async function onRequestGet(ctx){
     let rows=[];
     if(scope==="mine")rows=requests.filter(r=>r.requesterUserId===a.u.id);
     else if(scope==="procurement"){
-      if(!["admin","procurement"].includes(a.u.role))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
+      if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       rows=requests.filter(r=>["submitted","procurement"].includes(r.status));
     }else if(scope==="finance"){
-      if(!["admin","finance"].includes(a.u.role))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
+      if(!hasAnyRole(a.u,["admin","finance"]))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
       rows=requests.filter(r=>r.status==="finance");
     }else if(scope==="all"){
-      if(!["admin","planner"].includes(a.u.role))return bad("ไม่มีสิทธิ์",403);rows=requests;
+      if(!hasAnyRole(a.u,["admin","planner"]))return bad("ไม่มีสิทธิ์",403);rows=requests;
     }else return bad("scope ไม่ถูกต้อง");
     rows=enrich(rows,projects,activities).sort((x,y)=>String(y.createdAt).localeCompare(String(x.createdAt)));
     return json({requests:rows});
@@ -51,7 +51,7 @@ export async function onRequestPost(ctx){
     const requests=g.Requests,items=g.RequestItems,projects=g.Projects,activities=g.Activities,funds=g.ActivityFunds;
     const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
     if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
-    if(a.u.role==="teacher"&&!ownsProject(a.u,p))return bad("คุณไม่มีสิทธิ์เบิกโครงการนี้",403);
+    if(hasRole(a.u,"teacher")&&!hasAnyRole(a.u,["admin","planner"])&&!ownsProject(a.u,p))return bad("คุณไม่มีสิทธิ์เบิกโครงการนี้",403);
     const fund=funds.find(x=>x.activityId===act.id&&x.fundType===d.fundType&&amount(x.budget)>0);if(!fund)return bad("ประเภทเงินไม่ตรงกับกิจกรรม");
     const rows=Array.isArray(d.items)?d.items.map(x=>({description:String(x.description||"").trim(),amount:amount(x.amount)})).filter(x=>x.description&&x.amount>0):[];
     if(!rows.length)return bad("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
@@ -75,21 +75,21 @@ export async function onRequestPut(ctx){
     const r=requests.find(x=>x.id===d.id);if(!r)return bad("ไม่พบคำขอ",404);
     const now=new Date().toISOString();
     if(d.action==="cancel"){
-      if(!(r.requesterUserId===a.u.id||a.u.role==="admin")||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
+      if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin"))||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
       await update(ctx.env,"Requests",r.id,{status:"cancelled",updatedAt:now});return json({ok:true});
     }
     if(d.action==="procurement_start"){
-      if(!["admin","procurement"].includes(a.u.role))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
+      if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       if(r.status!=="submitted")return bad("สถานะคำขอไม่ถูกต้อง",409);
       await update(ctx.env,"Requests",r.id,{status:"procurement",procurementBy:a.u.displayName,updatedAt:now});return json({ok:true});
     }
     if(d.action==="send_finance"){
-      if(!["admin","procurement"].includes(a.u.role))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
+      if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       if(!["submitted","procurement"].includes(r.status))return bad("สถานะคำขอไม่ถูกต้อง",409);
       await update(ctx.env,"Requests",r.id,{status:"finance",procurementDocNo:String(d.procurementDocNo||"").trim(),procurementNote:String(d.note||"").trim(),procurementBy:a.u.displayName,updatedAt:now});return json({ok:true});
     }
     if(d.action==="pay"){
-      if(!["admin","finance"].includes(a.u.role))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
+      if(!hasAnyRole(a.u,["admin","finance"]))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
       if(r.status!=="finance")return bad("รายการนี้ไม่ได้อยู่ในสถานะรอการเงิน",409);
       const paid=amount(d.paidAmount||r.totalAmount);if(paid<=0||paid>amount(r.totalAmount))return bad("ยอดจ่ายจริงไม่ถูกต้อง");
       if(!d.paymentDate)return bad("กรุณาระบุวันที่จ่ายเงิน");
