@@ -2,7 +2,10 @@ const SCHEMA={
   Users:["id","username","passwordHash","role","displayName","status","createdAt"],
   Projects:["id","fiscalYear","code","name","owner","budget","status","createdAt","updatedAt"],
   Activities:["id","projectId","code","name","budget","owner","status","createdAt","updatedAt"],
-  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt"]
+  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt"],
+  ProjectMeta:["id","projectId","division","sourceSheet","importKey","createdAt","updatedAt"],
+  ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
+  Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"]
 };
 const enc=new TextEncoder();
 const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -72,7 +75,7 @@ export async function onRequest(ctx){
     }
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
-    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses"]);return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses})}
+    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests"]);return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses,projectMeta:g.ProjectMeta,activityFunds:g.ActivityFunds,requests:g.Requests})}
 
     if(path==="users"){
       const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
