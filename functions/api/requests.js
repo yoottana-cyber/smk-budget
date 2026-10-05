@@ -1,9 +1,12 @@
 
-import {ensureExtra,list,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
+import {ensureExtra,listMany,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>["admin","planner","procurement","finance"].includes(u.role)||r.requesterUserId===u.id;
-async function loadAll(env){return Promise.all([list(env,"Requests"),list(env,"RequestItems"),list(env,"Projects"),list(env,"Activities"),list(env,"ActivityFunds"),list(env,"ProjectMeta"),list(env,"Settings"),list(env,"Expenses")])}
+async function loadAll(env){
+  const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses"]);
+  return[g.Requests,g.RequestItems,g.Projects,g.Activities,g.ActivityFunds,g.ProjectMeta,g.Settings,g.Expenses];
+}
 function enrich(rs,projects,activities){
   const pm=Object.fromEntries(projects.map(x=>[x.id,x])),am=Object.fromEntries(activities.map(x=>[x.id,x]));
   return rs.map(r=>({...r,projectCode:pm[r.projectId]?.code||"",projectName:pm[r.projectId]?.name||"",activityCode:am[r.activityId]?.code||"",activityName:am[r.activityId]?.name||"",fundLabel:FUND_LABELS[r.fundType]||r.fundType}));
@@ -44,7 +47,8 @@ export async function onRequestPost(ctx){
     await ensureExtra(ctx.env);
     const a=await auth(ctx,["admin","planner","teacher"]);if(a.error)return bad(a.error==="FORBIDDEN"?"ไม่มีสิทธิ์ส่งคำขอ":"ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const d=await readBody(ctx.request);
-    const [requests,items,projects,activities,funds]=await Promise.all([list(ctx.env,"Requests"),list(ctx.env,"RequestItems"),list(ctx.env,"Projects"),list(ctx.env,"Activities"),list(ctx.env,"ActivityFunds")]);
+    const g=await listMany(ctx.env,["Requests","RequestItems","Projects","Activities","ActivityFunds"]);
+    const requests=g.Requests,items=g.RequestItems,projects=g.Projects,activities=g.Activities,funds=g.ActivityFunds;
     const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
     if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
     if(a.u.role==="teacher"&&!ownsProject(a.u,p))return bad("คุณไม่มีสิทธิ์เบิกโครงการนี้",403);
