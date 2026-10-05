@@ -175,8 +175,7 @@ function firstProjectOwnerName(value){
   return String(value||"").split(/\r?\n|,|;|\/|\s+และ\s+/).map(x=>x.trim()).filter(Boolean)[0]||"";
 }
 async function printRequest(id){
-  const w=window.open("","_blank");if(!w)return Swal.fire({icon:"warning",title:"เบราว์เซอร์บล็อกหน้าต่างพิมพ์",text:"กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้"});
-  w.document.write("<p style='font-family:sans-serif;padding:30px'>กำลังจัดทำบันทึกขอเบิกเงิน...</p>");
+  let w=null;
   try{
     const d=await api("/api/requests?scope=detail&id="+encodeURIComponent(id)),r=d.request,s=d.settings||{},fund=r.fundType;
     const defaultProjectOwner=firstProjectOwnerName(r.projectOwner)||r.requesterName||"";
@@ -186,13 +185,16 @@ async function printRequest(id){
       showCancelButton:true,confirmButtonText:"สร้างบันทึกข้อความ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
       preConfirm:()=>{const v=$("#memoProjectOwner")?.value.trim();if(!v)return Swal.showValidationMessage("กรุณาระบุชื่อผู้รับผิดชอบโครงการ");return v}
     });
-    if(!ownerPick.isConfirmed){w.close();return}
+    if(!ownerPick.isConfirmed)return;
     const projectOwnerName=ownerPick.value;
+    w=window.open("","_blank");
+    if(!w)return Swal.fire({icon:"warning",title:"เบราว์เซอร์บล็อกหน้าต่างพิมพ์",text:"กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้"});
+    w.document.write("<p style='font-family:sans-serif;padding:30px'>กำลังจัดทำบันทึกขอเบิกเงิน...</p>");
     const checks={subsidy:fund==="subsidy"?"☑":"☐",activity:fund==="activity"?"☑":"☐",income:fund==="income"?"☑":"☐",other:fund==="other"?"☑":"☐"};
     const itemRows=d.items.map((x,i)=>`<tr><td class="c">${i+1}</td><td>${esc(x.description)}</td><td class="money">${num(x.amount).toLocaleString("th-TH",{minimumFractionDigits:2})}</td><td class="c">${esc(r.paymentDocNo||"")}</td></tr>`).join("");
     const html=`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${esc(r.requestNo)}</title><style>
       @page{size:A4;margin:16mm 18mm}*{box-sizing:border-box}body{font-family:"Sarabun","TH Sarabun New",sans-serif;color:#111;font-size:16px;line-height:1.55;margin:0}.memo-top{position:relative;min-height:74px}.garuda{position:absolute;left:0;top:0;width:58px;height:62px;object-fit:contain}.tools{position:fixed;right:18px;top:14px}.tools button{padding:9px 16px}.doc{max-width:800px;margin:auto}.head{text-align:center;font-size:24px;font-weight:700;margin:4px 0 8px}.row{margin:5px 0}.indent{text-indent:42px}.line{border-bottom:1px dotted #555;padding:0 5px}.money{text-align:right}.c{text-align:center}.items{width:100%;border-collapse:collapse;margin:12px 0}.items th,.items td{border:1px solid #666;padding:6px 8px}.items th{background:#f4f4f4}.total{display:flex;justify-content:flex-end;gap:14px;font-weight:700}.signs{display:grid;grid-template-columns:1fr 1fr;gap:25px;margin-top:34px;text-align:center}.director{width:55%;margin:38px 0 0 auto;text-align:center}.small{font-size:14px}@media print{.tools{display:none}body{font-size:15px}.doc{max-width:none}}</style></head><body><div class="tools"><button onclick="window.print()">พิมพ์ / บันทึก PDF</button></div><div class="doc">
-      <div class="memo-top"><img class="garuda" alt="ตราครุฑ" src="https://commons.wikimedia.org/wiki/Special:Redirect/file/Thai_Garuda_emblem.svg"><div class="head">บันทึกข้อความ</div></div>
+      <div class="memo-top"><img class="garuda" alt="ตราครุฑ" src="/assets/garuda.png"><div class="head">บันทึกข้อความ</div></div>
       <div class="row"><strong>ส่วนราชการ</strong> ${esc(s.schoolName||"โรงเรียนสามัคคีศึกษา")} ${esc(s.schoolLocation||"")}</div>
       <div class="row"><strong>ที่</strong> <span class="line">${esc(r.requestNo)}</span> &nbsp;&nbsp; <strong>วันที่</strong> <span class="line">${thaiDateText((r.createdAt||"").slice(0,10))}</span></div>
       <div class="row"><strong>เรื่อง</strong> ขออนุมัติเบิกเงินตามกิจกรรม <span class="line">${esc(r.activityName)}</span></div>
@@ -210,5 +212,5 @@ async function printRequest(id){
       <p class="small">เลขที่คำขอ: ${esc(r.requestNo)} | สถานะ: ${esc((REQUEST_STATUS[r.status]||[r.status])[0])}</p>
     </div></body></html>`;
     w.document.open();w.document.write(html);w.document.close();
-  }catch(e){w.close();err(e)}
+  }catch(e){if(w)w.close();err(e)}
 }
