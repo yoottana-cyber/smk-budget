@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0f766e">
+  <title>งานแผนและงบประมาณ | โรงเรียนสามัคคีศึกษา</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.1.1/400.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.1.1/600.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.1.1/700.css">
+  <link rel="stylesheet" href="/assets/styles.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.15.3/dist/sweetalert2.all.min.js" defer></script>
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <section id="loginView" class="login-shell">
+    <div class="login-card">
+      <div class="brand-mark"><i data-lucide="landmark"></i></div>
+      <p class="eyebrow">โรงเรียนสามัคคีศึกษา</p>
+      <h1>ระบบบริหารจัดการงบประมาณ</h1>
+      <p class="muted">งานแผน • โครงการ • กิจกรรม • รายจ่าย • เงินคงเหลือ</p>
+      <form id="loginForm" class="form-stack">
+        <label>ชื่อผู้ใช้<input id="username" autocomplete="username" required></label>
+        <label>รหัสผ่าน<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn btn-primary" type="submit"><i data-lucide="log-in"></i>เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark small"><i data-lucide="landmark"></i></div>
+        <div><strong>งานแผน</strong><span>โรงเรียนสามัคคีศึกษา</span></div>
+      </div>
+      <nav id="mainNav" class="nav-list">
+        <button data-route="dashboard" class="nav-item active"><i data-lucide="layout-dashboard"></i>ภาพรวม</button>
+        <button data-route="projects" class="nav-item"><i data-lucide="folder-kanban"></i>โครงการ</button>
+        <button data-route="activities" class="nav-item"><i data-lucide="list-checks"></i>กิจกรรม</button>
+        <button data-route="expenses" class="nav-item"><i data-lucide="receipt-text"></i>รายจ่าย</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="userBox" class="user-box"></div>
+        <button id="logoutBtn" class="nav-item danger"><i data-lucide="log-out"></i>ออกจากระบบ</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">ระบบควบคุมงบประมาณ</p><h2 id="pageTitle">ภาพรวม</h2></div>
+        <div class="top-actions">
+          <select id="fiscalYearFilter" class="control compact"><option value="">ทุกปีงบประมาณ</option></select>
+          <button id="refreshBtn" class="btn btn-ghost"><i data-lucide="refresh-cw"></i>รีเฟรช</button>
+        </div>
+      </header>
+      <div id="content"></div>
+    </main>
+  </div>
+</body>
+</html>
