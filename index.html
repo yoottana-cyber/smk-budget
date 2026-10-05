@@ -14,7 +14,10 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.15.3/dist/sweetalert2.all.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/import.js" defer></script>
+  <script src="/assets/requests.js" defer></script>
 </head>
 <body>
   <section id="loginView" class="login-shell">
@@ -41,6 +44,10 @@
         <button data-route="dashboard" class="nav-item active"><i data-lucide="layout-dashboard"></i>ภาพรวม</button>
         <button data-route="projects" class="nav-item"><i data-lucide="folder-kanban"></i>โครงการ</button>
         <button data-route="activities" class="nav-item"><i data-lucide="list-checks"></i>กิจกรรม</button>
+        <button data-route="import" id="importNav" class="nav-item hidden"><i data-lucide="file-up"></i>นำเข้าโครงการ</button>
+        <button data-route="requests" id="requestsNav" class="nav-item hidden"><i data-lucide="file-text"></i>ขอเบิกเงิน</button>
+        <button data-route="procurement" id="procurementNav" class="nav-item hidden"><i data-lucide="package-check"></i>งานพัสดุ</button>
+        <button data-route="financeQueue" id="financeNav" class="nav-item hidden"><i data-lucide="badge-dollar-sign"></i>รอจ่ายเงิน</button>
         <button data-route="expenses" class="nav-item"><i data-lucide="receipt-text"></i>รายจ่าย</button>
         <button data-route="users" id="usersNav" class="nav-item hidden"><i data-lucide="users"></i>ผู้ใช้งาน</button>
       </nav>
