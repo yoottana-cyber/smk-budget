@@ -28,14 +28,14 @@ async function login(e){
 }
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${({admin:"ผู้ดูแลระบบ",planner:"งานแผน",finance:"การเงิน",viewer:"ผู้ดูข้อมูล"})[state.user.role]||state.user.role}</span>`;lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${({admin:"ผู้ดูแลระบบ",planner:"งานแผน",finance:"การเงิน",viewer:"ผู้ดูข้อมูล"})[state.user.role]||state.user.role}</span>`;$("#usersNav")?.classList.toggle("hidden",!canAdmin());lucide.createIcons()}
 async function refreshData(){try{state.data=await api("/api/data");years();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย"})[state.route];({dashboard:dashboard,projects:projects,activities:activities,expenses:expenses})[state.route]();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน"})[state.route];const fn=({dashboard,projects,activities,expenses,users})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,expenses}=filtered(),budget=projects.reduce((s,p)=>s+num(p.budget),0),spent=expenses.reduce((s,e)=>s+num(e.amount),0),balance=budget-spent,pct=budget?spent/budget*100:0;
@@ -79,4 +79,62 @@ async function expenseForm(e=null){
   if(!r.value)return;try{await api("/api/expenses",{method:e?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(x){err(x)}
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
+async function users(){
+  if(!canAdmin()){state.route="dashboard";return render()}
+  $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดข้อมูลผู้ใช้งาน...</div></section>';
+  try{
+    const data=await api("/api/users"), roleLabel={admin:"ผู้ดูแลระบบ",planner:"งานแผน",finance:"การเงิน",viewer:"ผู้ดูข้อมูล"};
+    $("#content").innerHTML='<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหาชื่อผู้ใช้ ชื่อ-สกุล หรือสิทธิ์"><button id="addBtn" class="btn btn-primary"><i data-lucide="user-plus"></i>เพิ่มผู้ใช้งาน</button></div><div class="table-wrap"><table><thead><tr><th>ชื่อผู้ใช้</th><th>ชื่อผู้ใช้งาน</th><th>สิทธิ์</th><th>สถานะ</th><th>สร้างเมื่อ</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></section>';
+    $("#addBtn").onclick=()=>userForm();
+    const paint=()=>{
+      const q=$("#search").value.toLowerCase();
+      const rows=data.users.filter(u=>`${u.username} ${u.displayName} ${roleLabel[u.role]||u.role}`.toLowerCase().includes(q));
+      $("#rows").innerHTML=rows.length?rows.map(u=>{
+        const self=u.id===state.user.id;
+        return `<tr><td><strong>${esc(u.username)}</strong>${self?' <span class="badge gray">บัญชีนี้</span>':''}</td><td>${esc(u.displayName)}</td><td><span class="badge gray">${esc(roleLabel[u.role]||u.role)}</span></td><td><span class="badge ${u.status==="active"?"":"gray"}">${u.status==="active"?"เปิดใช้งาน":"ปิดใช้งาน"}</span></td><td>${esc((u.createdAt||"").slice(0,10)||"-")}</td><td><div class="actions"><button class="icon-btn" data-edit="${u.id}" title="แก้ไข"><i data-lucide="pencil"></i></button><button class="icon-btn" data-pass="${u.id}" title="ตั้งรหัสผ่านใหม่"><i data-lucide="key-round"></i></button>${self?"":`<button class="icon-btn" data-toggle="${u.id}" title="${u.status==="active"?"ปิดบัญชี":"เปิดบัญชี"}"><i data-lucide="${u.status==="active"?"user-x":"user-check"}"></i></button>`}</div></td></tr>`
+      }).join(""):'<tr><td colspan="6" class="empty">ไม่พบผู้ใช้งาน</td></tr>';
+      $("[data-edit]").forEach(b=>b.onclick=()=>userForm(data.users.find(x=>x.id===b.dataset.edit)));
+      $("[data-pass]").forEach(b=>b.onclick=()=>resetUserPassword(data.users.find(x=>x.id===b.dataset.pass)));
+      $("[data-toggle]").forEach(b=>b.onclick=()=>toggleUser(data.users.find(x=>x.id===b.dataset.toggle)));
+      lucide.createIcons();
+    };
+    $("#search").oninput=paint;paint();lucide.createIcons();
+  }catch(e){err(e)}
+}
+async function userForm(u=null){
+  const self=u?.id===state.user.id;
+  const r=await Swal.fire({
+    title:u?"แก้ไขผู้ใช้งาน":"เพิ่มผู้ใช้งาน",
+    width:620,
+    html:`<div class="form-stack" style="text-align:left">
+      <label>ชื่อผู้ใช้<input id="usr" value="${esc(u?.username||"")}" ${u?"disabled":""}></label>
+      <label>ชื่อที่แสดง<input id="display" value="${esc(u?.displayName||"")}"></label>
+      ${u?"":'<label>รหัสผ่านเริ่มต้น<input id="pwd" type="password" minlength="6" autocomplete="new-password"><small class="muted">อย่างน้อย 6 ตัวอักษร</small></label>'}
+      <label>สิทธิ์<select id="role" ${self?"disabled":""}><option value="admin">ผู้ดูแลระบบ</option><option value="planner">งานแผน</option><option value="finance">การเงิน</option><option value="viewer">ผู้ดูข้อมูล</option></select></label>
+      <label>สถานะ<select id="ustatus" ${self?"disabled":""}><option value="active">เปิดใช้งาน</option><option value="inactive">ปิดใช้งาน</option></select></label>
+    </div>`,
+    showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
+    didOpen:()=>{$("#role").value=u?.role||"viewer";$("#ustatus").value=u?.status||"active"},
+    preConfirm:()=>{
+      const v={displayName:$("#display").value.trim(),role:self?u.role:$("#role").value,status:self?u.status:$("#ustatus").value};
+      if(!u){v.username=$("#usr").value.trim();v.password=$("#pwd").value;if(!v.username||v.username.length<3)return Swal.showValidationMessage("ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร");if(!v.password||v.password.length<6)return Swal.showValidationMessage("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")}
+      else v.id=u.id;
+      if(!v.displayName)return Swal.showValidationMessage("กรุณากรอกชื่อที่แสดง");
+      return v;
+    }
+  });
+  if(!r.value)return;
+  try{await api("/api/users",{method:u?"PUT":"POST",body:JSON.stringify(r.value)});if(self)state.user.displayName=r.value.displayName;await users();Swal.fire({icon:"success",title:"บันทึกผู้ใช้งานแล้ว",timer:900,showConfirmButton:false})}catch(e){err(e)}
+}
+async function resetUserPassword(u){
+  const r=await Swal.fire({title:"ตั้งรหัสผ่านใหม่",text:`บัญชี ${u.username}`,input:"password",inputAttributes:{autocomplete:"new-password",minlength:"6"},inputPlaceholder:"รหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร",showCancelButton:true,confirmButtonText:"เปลี่ยนรหัสผ่าน",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",inputValidator:v=>!v||v.length<6?"รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร":undefined});
+  if(!r.value)return;
+  try{await api("/api/users",{method:"PUT",body:JSON.stringify({id:u.id,password:r.value})});Swal.fire({icon:"success",title:"เปลี่ยนรหัสผ่านแล้ว",timer:900,showConfirmButton:false})}catch(e){err(e)}
+}
+async function toggleUser(u){
+  const next=u.status==="active"?"inactive":"active",word=next==="active"?"เปิดใช้งาน":"ปิดใช้งาน";
+  const r=await Swal.fire({icon:"question",title:`${word}บัญชี ${u.username}?`,showCancelButton:true,confirmButtonText:word,cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e"});
+  if(!r.isConfirmed)return;
+  try{await api("/api/users",{method:"PUT",body:JSON.stringify({id:u.id,status:next})});await users()}catch(e){err(e)}
+}
 window.addEventListener("DOMContentLoaded",init);
