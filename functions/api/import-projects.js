@@ -1,5 +1,5 @@
 
-import {ensureExtra,listRows,bulkAppend,batchUpdateRows,auth,json,bad,amount,readBody} from "../../src/budget-db.js";
+import {ensureExtra,listRowsMany,bulkAppend,batchUpdateRows,auth,json,bad,amount,readBody} from "../../src/budget-db.js";
 
 const clean=s=>String(s??"").trim();
 const keyOf=(fy,division,code)=>[fy,division,code].map(clean).join("|").toLowerCase();
@@ -14,12 +14,8 @@ export async function onRequestPost(ctx){
     if(!incoming.length)return bad("ไม่พบข้อมูลโครงการสำหรับนำเข้า");
     if(incoming.length>1000)return bad("จำนวนโครงการมากเกินไป");
 
-    const [projects,activities,metas,funds]=await Promise.all([
-      listRows(ctx.env,"Projects"),
-      listRows(ctx.env,"Activities"),
-      listRows(ctx.env,"ProjectMeta"),
-      listRows(ctx.env,"ActivityFunds")
-    ]);
+    const grouped=await listRowsMany(ctx.env,["Projects","Activities","ProjectMeta","ActivityFunds"]);
+    const projects=grouped.Projects,activities=grouped.Activities,metas=grouped.ProjectMeta,funds=grouped.ActivityFunds;
 
     const newProjects=[],updProjects=[],newMetas=[],updMetas=[],newActs=[],updActs=[],newFunds=[],updFunds=[];
     let projectCreated=0,projectUpdated=0,activityCreated=0,activityUpdated=0,fundUpdated=0;
