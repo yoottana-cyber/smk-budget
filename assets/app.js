@@ -122,7 +122,7 @@ async function userForm(u=null){
     showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
     didOpen:()=>{$("#ustatus").value=u?.status||"active"},
     preConfirm:()=>{
-      const roles=$(".role-check").filter(x=>x.checked).map(x=>x.value);
+      const roles=$$(".role-check").filter(x=>x.checked).map(x=>x.value);
       if(!roles.length)return Swal.showValidationMessage("กรุณาเลือกอย่างน้อย 1 บทบาท");
       const v={displayName:$("#display").value.trim(),roles,status:self?u.status:$("#ustatus").value};
       if(!u){v.username=$("#usr").value.trim();v.password=$("#pwd").value;if(!v.username||v.username.length<3)return Swal.showValidationMessage("ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร");if(!v.password||v.password.length<6)return Swal.showValidationMessage("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")}
