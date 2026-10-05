@@ -1,5 +1,5 @@
 
-import {ensureExtra,list,append,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../_lib/budget-db.js";
+import {ensureExtra,list,append,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>["admin","planner","procurement","finance"].includes(u.role)||r.requesterUserId===u.id;
