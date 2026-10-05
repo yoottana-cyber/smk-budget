@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,auth,json,bad,amount,ownsProject,PENDING_STATUSES} from "../../src/budget-db.js";
+import {ensureExtra,listMany,auth,json,bad,amount,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES} from "../../src/budget-db.js";
 
 export async function onRequestGet(ctx){
   try{
@@ -7,7 +7,8 @@ export async function onRequestGet(ctx){
     const a=await auth(ctx,["admin","planner","teacher","procurement","finance"]);if(a.error)return bad("ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const grouped=await listMany(ctx.env,["Projects","Activities","ProjectMeta","ActivityFunds","Requests"]);
     const projects=grouped.Projects,activities=grouped.Activities,metas=grouped.ProjectMeta,funds=grouped.ActivityFunds,requests=grouped.Requests;
-    const visible=projects.filter(p=>a.u.role==="teacher"?ownsProject(a.u,p):true);
+    const limitToOwn=hasRole(a.u,"teacher")&&!hasAnyRole(a.u,["admin","planner"]);
+    const visible=projects.filter(p=>limitToOwn?ownsProject(a.u,p):true);
     const ids=new Set(visible.map(x=>x.id)),acts=activities.filter(x=>ids.has(x.projectId)),aids=new Set(acts.map(x=>x.id));
     const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x]));
     const enrichedProjects=visible.map(p=>({...p,division:metaMap[p.id]?.division||""}));

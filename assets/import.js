@@ -38,7 +38,7 @@ function parseProjectWorkbook(wb){
   return{projects,summary};
 }
 async function importProjects(){
-  if(!["admin","planner"].includes(state.user?.role)){state.route="dashboard";return render()}
+  if(!hasAnyRole(["admin","planner"])){state.route="dashboard";return render()}
   $("#content").innerHTML=`
     <section class="panel">
       <div class="panel-head"><div><h3>นำเข้าข้อมูลโครงการจาก Excel</h3><p class="muted">รองรับรูปแบบเดียวกับไฟล์สรุปงบประมาณ ปี 2569 ที่ใช้เป็นต้นแบบ</p></div></div>
