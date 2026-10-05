@@ -142,8 +142,75 @@ function dashboard(){
 }
 function panel(head,button,cols){return`<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหา...">${canEdit()?`<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>${button}</button>`:""}</div><div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody id="rows"></tbody></table></div></section>`}
 function projects(){
-  const {projects:ps,expenses:ex}=filtered();$("#content").innerHTML=panel("","เพิ่มโครงการ","<th>ปี/รหัส</th><th>โครงการ</th><th>ผู้รับผิดชอบ</th><th class='num'>งบ</th><th class='num'>ใช้ไป</th><th class='num'>คงเหลือ</th><th>สถานะ</th><th></th>");if(canEdit())$("#addBtn").onclick=()=>projectForm();
-  const paint=()=>{const q=$("#search").value.toLowerCase(),rs=ps.filter(p=>`${p.code} ${p.name} ${p.owner}`.toLowerCase().includes(q));$("#rows").innerHTML=rs.length?rs.map(p=>{const s=pstat(p,ex);return`<tr><td>${esc(p.fiscalYear)}<br><strong>${esc(p.code)}</strong></td><td>${esc(p.name)}</td><td>${esc(p.owner)}</td><td class="num">${money(s.budget)}</td><td class="num">${money(s.spent)}</td><td class="num ${s.balance<0?"negative":""}">${money(s.balance)}</td><td><span class="badge ${p.status==="ปิดโครงการ"?"gray":""}">${esc(p.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-e="${p.id}"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${p.id}"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join(""):`<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>`;$$("[data-e]").forEach(b=>b.onclick=()=>projectForm(state.data.projects.find(x=>x.id===b.dataset.e)));$$("[data-d]").forEach(b=>b.onclick=()=>remove("projects",b.dataset.d));lucide.createIcons()};$("#search").oninput=paint;paint()
+  const {projects:ps,activities:as,expenses:ex}=filtered();
+  const projectIds=new Set(ps.map(p=>p.id));
+  const metaMap=Object.fromEntries((state.data.projectMeta||[]).filter(x=>projectIds.has(x.projectId)).map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
+  $("#content").innerHTML=`<section class="panel">
+    <div class="toolbar">
+      <input id="search" class="search" placeholder="ค้นหาฝ่าย โครงการ กิจกรรม หรือผู้รับผิดชอบ">
+      ${canEdit()?'<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>เพิ่มโครงการ</button>':""}
+    </div>
+    <div id="projectGroups"></div>
+  </section>`;
+  if(canEdit())$("#addBtn").onclick=()=>projectForm();
+
+  const paint=()=>{
+    const q=$("#search").value.toLowerCase();
+    const visibleProjects=ps.filter(p=>{
+      const division=metaMap[p.id]||"ไม่ระบุฝ่าย";
+      const acts=as.filter(a=>a.projectId===p.id);
+      return `${division} ${p.code} ${p.name} ${p.owner} ${acts.map(a=>`${a.code} ${a.name} ${a.owner}`).join(" ")}`.toLowerCase().includes(q);
+    });
+    const divisions=[...new Set(visibleProjects.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))];
+    $("#projectGroups").innerHTML=divisions.length?divisions.map(division=>{
+      const dProjects=visibleProjects.filter(p=>(metaMap[p.id]||"ไม่ระบุฝ่าย")===division);
+      const dBudget=dProjects.reduce((s,p)=>s+num(p.budget),0);
+      const dSpent=ex.filter(e=>dProjects.some(p=>p.id===e.projectId)).reduce((s,e)=>s+num(e.amount),0);
+      return `<section class="division-section">
+        <div class="division-head">
+          <div><div class="division-title"><i data-lucide="building-2"></i><strong>${esc(division)}</strong></div><small>${dProjects.length} โครงการ</small></div>
+          <div class="division-totals"><span>งบ <strong>${money(dBudget)}</strong></span><span>ใช้ไป <strong>${money(dSpent)}</strong></span><span>คงเหลือ <strong>${money(dBudget-dSpent)}</strong></span></div>
+        </div>
+        <div class="project-stack">
+          ${dProjects.map(p=>{
+            const s=pstat(p,ex),acts=as.filter(a=>a.projectId===p.id);
+            return `<article class="project-box">
+              <div class="project-box-head">
+                <div class="project-main">
+                  <div class="project-code">${esc(p.code)}</div>
+                  <div><h4>${esc(p.name)}</h4><p>ผู้รับผิดชอบ: ${esc(p.owner||"-")}</p></div>
+                </div>
+                <div class="project-summary">
+                  <span>งบ <strong>${money(s.budget)}</strong></span>
+                  <span>ใช้ไป <strong>${money(s.spent)}</strong></span>
+                  <span>คงเหลือ <strong class="${s.balance<0?"negative":""}">${money(s.balance)}</strong></span>
+                  <span class="badge ${p.status==="ปิดโครงการ"?"gray":""}">${esc(p.status||"ดำเนินการ")}</span>
+                  <div class="actions">
+                    ${canEdit()?`<button class="icon-btn" data-add-activity="${p.id}" title="เพิ่มกิจกรรม"><i data-lucide="list-plus"></i></button><button class="icon-btn" data-pe="${p.id}" title="แก้ไขโครงการ"><i data-lucide="pencil"></i></button>`:""}
+                    ${canAdmin()?`<button class="icon-btn" data-pd="${p.id}" title="ลบโครงการ"><i data-lucide="trash-2"></i></button>`:""}
+                  </div>
+                </div>
+              </div>
+              <div class="activity-block">
+                <div class="activity-label"><i data-lucide="list-checks"></i><strong>กิจกรรม</strong><span>${acts.length} รายการ</span></div>
+                ${acts.length?`<div class="table-wrap activity-table"><table><thead><tr><th>รหัส</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class="num">งบดำเนินงาน</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>สถานะ</th><th></th></tr></thead><tbody>
+                  ${acts.map(a=>{const x=astat(a,ex);return`<tr><td><strong>${esc(a.code||"-")}</strong></td><td>${esc(a.name)}</td><td>${esc(a.owner||"-")}</td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num ${x.balance<0?"negative":""}">${money(x.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-ae="${a.id}" title="แก้ไขกิจกรรม"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-ad="${a.id}" title="ลบกิจกรรม"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join("")}
+                </tbody></table></div>`:'<div class="empty activity-empty">ยังไม่มีกิจกรรมในโครงการนี้</div>'}
+              </div>
+            </article>`;
+          }).join("")}
+        </div>
+      </section>`;
+    }).join(""):'<div class="empty">ไม่พบข้อมูลโครงการหรือกิจกรรม</div>';
+
+    $$("[data-add-activity]").forEach(b=>b.onclick=()=>activityForm(null,b.dataset.addActivity));
+    $$("[data-pe]").forEach(b=>b.onclick=()=>projectForm(state.data.projects.find(x=>x.id===b.dataset.pe)));
+    $$("[data-pd]").forEach(b=>b.onclick=()=>remove("projects",b.dataset.pd));
+    $$("[data-ae]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.ae)));
+    $$("[data-ad]").forEach(b=>b.onclick=()=>remove("activities",b.dataset.ad));
+    lucide.createIcons();
+  };
+  $("#search").oninput=paint;paint();
 }
 async function projectForm(p=null){
   const r=await Swal.fire({title:p?"แก้ไขโครงการ":"เพิ่มโครงการ",html:`<div class="form-stack" style="text-align:left"><label>ปีงบประมาณ<input id="fy" value="${esc(p?.fiscalYear||new Date().getFullYear()+543)}"></label><label>รหัสโครงการ<input id="code" value="${esc(p?.code||"")}"></label><label>ชื่อโครงการ<input id="name" value="${esc(p?.name||"")}"></label><label>ผู้รับผิดชอบ<input id="owner" value="${esc(p?.owner||"")}"></label><label>งบประมาณ<input id="budget" type="number" min="0" step=".01" value="${esc(p?.budget||"")}"></label><label>สถานะ<select id="status"><option>ดำเนินการ</option><option>ปิดโครงการ</option></select></label></div>`,showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",didOpen:()=>$("#status").value=p?.status||"ดำเนินการ",preConfirm:()=>{const v={id:p?.id||uid("prj"),fiscalYear:$("#fy").value.trim(),code:$("#code").value.trim(),name:$("#name").value.trim(),owner:$("#owner").value.trim(),budget:num($("#budget").value),status:$("#status").value};if(!v.fiscalYear||!v.code||!v.name)return Swal.showValidationMessage("กรุณากรอกข้อมูลสำคัญให้ครบ");return v}});
@@ -153,9 +220,9 @@ function activities(){
   const {activities:as,expenses:ex}=filtered(),pm=Object.fromEntries(state.data.projects.map(p=>[p.id,p]));$("#content").innerHTML=panel("","เพิ่มกิจกรรม","<th>โครงการ</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class='num'>งบดำเนินงาน</th><th class='num'>ใช้ไป</th><th class='num'>คงเหลือ</th><th>สถานะ</th><th></th>");if(canEdit())$("#addBtn").onclick=()=>activityForm();
   const paint=()=>{const q=$("#search").value.toLowerCase(),rs=as.filter(a=>`${a.code} ${a.name} ${a.owner} ${pm[a.projectId]?.name||""}`.toLowerCase().includes(q));$("#rows").innerHTML=rs.length?rs.map(a=>{const s=astat(a,ex);return`<tr><td>${esc(pm[a.projectId]?.code||"-")}<br><small>${esc(pm[a.projectId]?.name||"")}</small></td><td><strong>${esc(a.code)}</strong><br>${esc(a.name)}</td><td>${esc(a.owner)}</td><td class="num">${money(s.budget)}</td><td class="num">${money(s.spent)}</td><td class="num ${s.balance<0?"negative":""}">${money(s.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-e="${a.id}"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${a.id}"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join(""):`<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>`;$$("[data-e]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.e)));$$("[data-d]").forEach(b=>b.onclick=()=>remove("activities",b.dataset.d));lucide.createIcons()};$("#search").oninput=paint;paint()
 }
-async function activityForm(a=null){
+async function activityForm(a=null,defaultProjectId=""){
   const ps=state.data.projects;if(!ps.length)return Swal.fire({icon:"info",title:"กรุณาเพิ่มโครงการก่อน"});const opts=ps.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const r=await Swal.fire({title:a?"แก้ไขกิจกรรม":"เพิ่มกิจกรรม",html:`<div class="form-stack" style="text-align:left"><label>โครงการ<select id="prj">${opts}</select></label><label>รหัสกิจกรรม<input id="code" value="${esc(a?.code||"")}"></label><label>ชื่อกิจกรรม<input id="name" value="${esc(a?.name||"")}"></label><label>ผู้รับผิดชอบ<input id="owner" value="${esc(a?.owner||"")}"></label><label>งบดำเนินงาน<input id="budget" type="number" min="0" step=".01" value="${esc(a?.budget||"")}"></label><label>สถานะ<select id="status"><option>ดำเนินการ</option><option>เสร็จสิ้น</option></select></label></div>`,showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",didOpen:()=>{$("#prj").value=a?.projectId||ps[0].id;$("#status").value=a?.status||"ดำเนินการ"},preConfirm:()=>{const v={id:a?.id||uid("act"),projectId:$("#prj").value,code:$("#code").value.trim(),name:$("#name").value.trim(),owner:$("#owner").value.trim(),budget:num($("#budget").value),status:$("#status").value};if(!v.code||!v.name)return Swal.showValidationMessage("กรุณากรอกรหัสและชื่อกิจกรรม");return v}});
+  const r=await Swal.fire({title:a?"แก้ไขกิจกรรม":"เพิ่มกิจกรรม",html:`<div class="form-stack" style="text-align:left"><label>โครงการ<select id="prj">${opts}</select></label><label>รหัสกิจกรรม<input id="code" value="${esc(a?.code||"")}"></label><label>ชื่อกิจกรรม<input id="name" value="${esc(a?.name||"")}"></label><label>ผู้รับผิดชอบ<input id="owner" value="${esc(a?.owner||"")}"></label><label>งบดำเนินงาน<input id="budget" type="number" min="0" step=".01" value="${esc(a?.budget||"")}"></label><label>สถานะ<select id="status"><option>ดำเนินการ</option><option>เสร็จสิ้น</option></select></label></div>`,showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",didOpen:()=>{$("#prj").value=a?.projectId||defaultProjectId||ps[0].id;$("#status").value=a?.status||"ดำเนินการ"},preConfirm:()=>{const v={id:a?.id||uid("act"),projectId:$("#prj").value,code:$("#code").value.trim(),name:$("#name").value.trim(),owner:$("#owner").value.trim(),budget:num($("#budget").value),status:$("#status").value};if(!v.code||!v.name)return Swal.showValidationMessage("กรุณากรอกรหัสและชื่อกิจกรรม");return v}});
   if(!r.value)return;try{await api("/api/activities",{method:a?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(e){err(e)}
 }
 function expenses(){
