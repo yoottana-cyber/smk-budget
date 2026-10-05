@@ -64,7 +64,7 @@ export async function onRequest(ctx){
 
     if(path==="users"){
       const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
-      const roles=["admin","planner","finance","viewer"],statuses=["active","inactive"];
+      const roles=["admin","planner","teacher","procurement","finance","viewer"],statuses=["active","inactive"];
       if(method==="GET"){
         const us=await list(env,"Users");
         return json({users:us.map(x=>({id:x.id,username:x.username,role:x.role,displayName:x.displayName,status:x.status,createdAt:x.createdAt})).sort((x,y)=>x.username.localeCompare(y.username))});
