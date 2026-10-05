@@ -14,6 +14,13 @@ const enc=new TextEncoder();
 export const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
 export const bad=(m,s=400)=>json({error:m},s);
 export const amount=n=>Number(String(n??0).replace(/,/g,"").replace(/-/g,""))||0;
+export const VALID_ROLES=["admin","planner","teacher","procurement","finance","viewer"];
+export function roleList(value){
+  const src=Array.isArray(value)?value:String(value||"").split(",");
+  return [...new Set(src.map(x=>String(x).trim()).filter(x=>VALID_ROLES.includes(x)))];
+}
+export const hasRole=(u,role)=>roleList(u?.roles?.length?u.roles:u?.role).includes(role);
+export const hasAnyRole=(u,roles=[])=>roles.some(role=>hasRole(u,role));
 export async function readBody(r){try{return await r.json()}catch{throw new Error("JSON ไม่ถูกต้อง")}}
 function col(n){let s="";while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s}
 function pem(p){const b=p.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,""),x=atob(b);return Uint8Array.from(x,c=>c.charCodeAt(0)).buffer}
@@ -117,15 +124,15 @@ export async function auth(ctx,roles=[]){
   const a=ctx.request.headers.get("authorization")||"",t=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);
   if(!t)return{error:"UNAUTHORIZED"};
   const us=await list(ctx.env,"Users"),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};
-  const u={id:row.id,username:row.username,role:row.role,displayName:row.displayName};
-  if(roles.length&&!roles.includes(u.role))return{error:"FORBIDDEN",u};return{u};
+  const userRoles=roleList(row.role),u={id:row.id,username:row.username,role:userRoles[0]||"viewer",roles:userRoles.length?userRoles:["viewer"],displayName:row.displayName};
+  if(roles.length&&!hasAnyRole(u,roles))return{error:"FORBIDDEN",u};return{u};
 }
 export function normPerson(s){
   return String(s||"").toLowerCase().replace(/\s+/g,"").replace(/^(นาย|นางสาว|นาง|ครู|ดร\.?|ว่าที่ร้อยตรีหญิง|ว่าที่ร้อยตรี)/,"");
 }
 export function ownsProject(u,p){
-  if(["admin","planner"].includes(u.role))return true;
-  if(u.role!=="teacher")return false;
+  if(hasAnyRole(u,["admin","planner"]))return true;
+  if(!hasRole(u,"teacher"))return false;
   const a=normPerson(u.displayName),b=normPerson(p.owner);
   return !!a&&!!b&&(b.includes(a)||a.includes(b));
 }
