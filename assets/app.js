@@ -108,7 +108,7 @@ async function users(){
 }
 async function userForm(u=null){
   const self=u?.id===state.user.id,selected=new Set(userRoles(u).length?userRoles(u):["viewer"]);
-  const roleOptions=Object.entries(ROLE_LABELS).map(([value,label])=>`<label style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:9px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:10px;font-weight:500"><input class="role-check" type="checkbox" value="${value}" style="width:auto" ${selected.has(value)?"checked":""} ${self?"disabled":""}><span>${esc(label)}</span></label>`).join("");
+  const roleOptions=Object.entries(ROLE_LABELS).map(([value,label])=>`<label style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:9px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:10px;font-weight:500"><input class="role-check" type="checkbox" value="${value}" style="width:auto" ${selected.has(value)?"checked":""}><span>${esc(label)}</span></label>`).join("");
   const r=await Swal.fire({
     title:u?"แก้ไขผู้ใช้งาน":"เพิ่มผู้ใช้งาน",
     width:650,
@@ -122,7 +122,7 @@ async function userForm(u=null){
     showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
     didOpen:()=>{$("#ustatus").value=u?.status||"active"},
     preConfirm:()=>{
-      const roles=self?userRoles(u):$$(".role-check").filter(x=>x.checked).map(x=>x.value);
+      const roles=$(".role-check").filter(x=>x.checked).map(x=>x.value);
       if(!roles.length)return Swal.showValidationMessage("กรุณาเลือกอย่างน้อย 1 บทบาท");
       const v={displayName:$("#display").value.trim(),roles,status:self?u.status:$("#ustatus").value};
       if(!u){v.username=$("#usr").value.trim();v.password=$("#pwd").value;if(!v.username||v.username.length<3)return Swal.showValidationMessage("ชื่อผู้ใช้ต้องมีอย่างน้อย 3 ตัวอักษร");if(!v.password||v.password.length<6)return Swal.showValidationMessage("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")}
