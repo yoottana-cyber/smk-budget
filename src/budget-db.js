@@ -20,15 +20,17 @@ function pem(p){const b=p.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE 
 function b64u(buf){const b=buf instanceof Uint8Array?buf:new Uint8Array(buf);let s="";for(const x of b)s+=String.fromCharCode(x);return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
 function b64t(s){return b64u(enc.encode(s))}
 function from64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
+let googleTokenCache={token:"",exp:0};
 async function gtoken(env){
-  const sa=JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),now=Math.floor(Date.now()/1000);
+  const nowSec=Math.floor(Date.now()/1000);if(googleTokenCache.token&&googleTokenCache.exp-nowSec>120)return googleTokenCache.token;
+  const sa=JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),now=nowSec;
   const h=b64t(JSON.stringify({alg:"RS256",typ:"JWT"}));
   const c=b64t(JSON.stringify({iss:sa.client_email,scope:"https://www.googleapis.com/auth/spreadsheets",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600}));
   const input=h+"."+c;
   const key=await crypto.subtle.importKey("pkcs8",pem(sa.private_key),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,enc.encode(input));
   const r=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",assertion:input+"."+b64u(sig)})});
-  const j=await r.json();if(!r.ok)throw new Error(j.error_description||j.error||"Google auth error");return j.access_token;
+  const j=await r.json();if(!r.ok)throw new Error(j.error_description||j.error||"Google auth error");googleTokenCache={token:j.access_token,exp:now+Number(j.expires_in||3600)};return j.access_token;
 }
 async function gf(env,path,opt={}){
   const t=await gtoken(env);
@@ -37,14 +39,21 @@ async function gf(env,path,opt={}){
 }
 async function values(env,range){return(await gf(env,"/values/"+encodeURIComponent(range)+"?majorDimension=ROWS")).values||[]}
 async function put(env,range,vals){return gf(env,"/values/"+encodeURIComponent(range)+"?valueInputOption=USER_ENTERED",{method:"PUT",body:JSON.stringify({values:vals})})}
-export async function append(env,sheet,obj){
-  const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);
-  return gf(env,"/values/"+encodeURIComponent(sheet+"!A:"+col(h.length))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:[h.map(k=>obj[k]??"")]})});
+export async function append(env,sheet,obj){return bulkAppend(env,sheet,[obj])}
+export async function bulkAppend(env,sheet,objects){
+  const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);if(!objects?.length)return null;
+  return gf(env,"/values/"+encodeURIComponent(sheet+"!A:"+col(h.length))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:objects.map(obj=>h.map(k=>obj[k]??""))})});
 }
-export async function list(env,sheet){
+export async function list(env,sheet){return (await listRows(env,sheet)).map(x=>{const y={...x};delete y.__row;return y})}
+export async function listRows(env,sheet){
   const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);
   const r=await values(env,sheet+"!A:"+col(h.length));
-  return r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])));
+  return r.slice(1).map((x,i)=>({x,row:i+2})).filter(z=>z.x.some(v=>String(v).trim())).map(z=>({...Object.fromEntries(h.map((k,i)=>[k,z.x[i]??""])),__row:z.row}));
+}
+export async function batchUpdateRows(env,sheet,rows){
+  const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);if(!rows?.length)return null;
+  const data=rows.map(({__row,...obj})=>({range:sheet+"!A"+__row+":"+col(h.length)+__row,values:[h.map(k=>obj[k]??"")]}));
+  return gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data})});
 }
 export async function update(env,sheet,id,obj){
   const h=SCHEMA[sheet],r=await values(env,sheet+"!A:"+col(h.length)),i=r.findIndex((x,n)=>n>0&&x[0]===id);
@@ -54,19 +63,21 @@ export async function update(env,sheet,id,obj){
 }
 export async function ensureExtra(env){
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
-  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"];
-  const req=extra.filter(x=>!have.has(x)).map(title=>({addSheet:{properties:{title}}}));
-  if(req.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:req})});
-  for(const s of extra){const h=SCHEMA[s],r=await values(env,s+"!1:1");if(!r.length)await put(env,s+"!A1:"+col(h.length)+"1",[h])}
-  const settings=await list(env,"Settings");
-  const defaults={
-    schoolName:"โรงเรียนสามัคคีศึกษา",
-    schoolLocation:"อำเภอห้วยยอด จังหวัดตรัง",
-    financeOfficer:"นางสาวจันทรา ชำนาญดง",
-    directorName:"นายจักรพงษ์ ทองประดับ",
-    directorTitle:"ผู้อำนวยการโรงเรียนสามัคคีศึกษา"
-  };
-  for(const [key,value] of Object.entries(defaults))if(!settings.some(x=>x.key===key))await append(env,"Settings",{key,value,updatedAt:new Date().toISOString()});
+  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"],missing=extra.filter(x=>!have.has(x));
+  if(!missing.length)return;
+  await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
+  const headerData=missing.map(s=>{const h=SCHEMA[s];return{range:s+"!A1:"+col(h.length)+"1",values:[h]}});
+  await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:headerData})});
+  if(missing.includes("Settings")){
+    const now=new Date().toISOString();
+    await bulkAppend(env,"Settings",[
+      {key:"schoolName",value:"โรงเรียนสามัคคีศึกษา",updatedAt:now},
+      {key:"schoolLocation",value:"อำเภอห้วยยอด จังหวัดตรัง",updatedAt:now},
+      {key:"financeOfficer",value:"นางสาวจันทรา ชำนาญดง",updatedAt:now},
+      {key:"directorName",value:"นายจักรพงษ์ ทองประดับ",updatedAt:now},
+      {key:"directorTitle",value:"ผู้อำนวยการโรงเรียนสามัคคีศึกษา",updatedAt:now}
+    ]);
+  }
 }
 async function verify(t,secret){
   try{
