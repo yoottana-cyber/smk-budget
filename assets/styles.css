@@ -80,3 +80,13 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .activity-collapse{display:none}
 .activity-collapse.open{display:block}
 @media(max-width:760px){.activity-toggle-hint{padding-right:10px}.activity-toggle-hint{font-size:0}.activity-toggle-hint svg{width:20px;height:20px}}
+
+.project-name-wrap{padding:8px 12px;border-radius:10px;min-width:0}
+.project-name-wrap h4{margin:0 0 4px}
+.project-name-wrap p{margin:0}
+.project-name-wrap.tone-academic{background:#dcfce7}
+.project-name-wrap.tone-budget{background:#dbeafe}
+.project-name-wrap.tone-personnel{background:#fce7f3}
+.project-name-wrap.tone-student{background:#ede9fe}
+.project-name-wrap.tone-general{background:#fef9c3}
+.project-name-wrap.tone-default{background:#f8fafc}
