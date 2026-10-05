@@ -38,6 +38,12 @@ async function gf(env,path,opt={}){
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||("Sheets API "+r.status));return j;
 }
 async function values(env,range){return(await gf(env,"/values/"+encodeURIComponent(range)+"?majorDimension=ROWS")).values||[]}
+async function batchValues(env,ranges){
+  if(!ranges?.length)return[];
+  const q=ranges.map(x=>"ranges="+encodeURIComponent(x)).join("&");
+  const j=await gf(env,"/values:batchGet?majorDimension=ROWS&"+q);
+  return (j.valueRanges||[]).map(x=>x.values||[]);
+}
 async function put(env,range,vals){return gf(env,"/values/"+encodeURIComponent(range)+"?valueInputOption=USER_ENTERED",{method:"PUT",body:JSON.stringify({values:vals})})}
 export async function append(env,sheet,obj){return bulkAppend(env,sheet,[obj])}
 export async function bulkAppend(env,sheet,objects){
@@ -45,6 +51,24 @@ export async function bulkAppend(env,sheet,objects){
   return gf(env,"/values/"+encodeURIComponent(sheet+"!A:"+col(h.length))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:objects.map(obj=>h.map(k=>obj[k]??""))})});
 }
 export async function list(env,sheet){return (await listRows(env,sheet)).map(x=>{const y={...x};delete y.__row;return y})}
+export async function listMany(env,sheets){
+  const ranges=sheets.map(sheet=>{const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);return sheet+"!A:"+col(h.length)});
+  const groups=await batchValues(env,ranges),out={};
+  sheets.forEach((sheet,idx)=>{
+    const h=SCHEMA[sheet],r=groups[idx]||[];
+    out[sheet]=r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])));
+  });
+  return out;
+}
+export async function listRowsMany(env,sheets){
+  const ranges=sheets.map(sheet=>{const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);return sheet+"!A:"+col(h.length)});
+  const groups=await batchValues(env,ranges),out={};
+  sheets.forEach((sheet,idx)=>{
+    const h=SCHEMA[sheet],r=groups[idx]||[];
+    out[sheet]=r.slice(1).map((x,i)=>({x,row:i+2})).filter(z=>z.x.some(v=>String(v).trim())).map(z=>({...Object.fromEntries(h.map((k,i)=>[k,z.x[i]??""])),__row:z.row}));
+  });
+  return out;
+}
 export async function listRows(env,sheet){
   const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);
   const r=await values(env,sheet+"!A:"+col(h.length));
@@ -61,10 +85,12 @@ export async function update(env,sheet,id,obj){
   const old=Object.fromEntries(h.map((k,j)=>[k,r[i][j]??""])),m={...old,...obj};
   await put(env,sheet+"!A"+(i+1)+":"+col(h.length)+(i+1),[h.map(k=>m[k]??"")]);return m;
 }
+let ensureExtraReadyUntil=0;
 export async function ensureExtra(env){
+  if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
   const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"],missing=extra.filter(x=>!have.has(x));
-  if(!missing.length)return;
+  if(!missing.length){ensureExtraReadyUntil=Date.now()+300000;return;}
   await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
   const headerData=missing.map(s=>{const h=SCHEMA[s];return{range:s+"!A1:"+col(h.length)+"1",values:[h]}});
   await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:headerData})});
@@ -78,6 +104,7 @@ export async function ensureExtra(env){
       {key:"directorTitle",value:"ผู้อำนวยการโรงเรียนสามัคคีศึกษา",updatedAt:now}
     ]);
   }
+  ensureExtraReadyUntil=Date.now()+300000;
 }
 async function verify(t,secret){
   try{
