@@ -134,7 +134,7 @@ function dashboard(){
     ${rows.length?rows.map(p=>{const pc=p.budget?p.spent/p.budget*100:0;return`<tr><td><strong>${esc(p.code)}</strong><br>${esc(p.name)}</td><td>${esc(p.owner)}</td><td class="num">${money(p.budget)}</td><td class="num">${money(p.spent)}</td><td class="num ${p.balance<0?"negative":""}">${money(p.balance)}</td><td><div class="progress"><div class="progress-track"><div class="progress-bar" style="width:${Math.min(pc,100)}%"></div></div><span>${pc.toFixed(0)}%</span></div></td></tr>`}).join(""):`<tr><td colspan="6" class="empty">ยังไม่มีข้อมูลโครงการ</td></tr>`}
   </tbody></table></div></section>`;
 
-  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
+  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";$$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
   state.charts.p=new Chart($("#projectChart"),{type:"bar",data:{labels:rows.slice(0,10).map(x=>x.code||x.name),datasets:[{label:"งบประมาณ",data:rows.slice(0,10).map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:6},{label:"รายจ่าย",data:rows.slice(0,10).map(x=>x.spent),backgroundColor:"rgba(217,119,6,.72)",borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
   state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["จ่ายจริง","รอเบิก","พร้อมใช้"],datasets:[{data:[spent,Math.max(reserved,0),Math.max(available,0)],backgroundColor:["#0f766e","#f59e0b","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
   state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
@@ -218,8 +218,8 @@ function projects(){
       </div>
     </section>`:`<div class="empty">ไม่พบโครงการหรือกิจกรรมในฝ่าย ${esc(activeDivision||"-")}</div>`;
 
-    $("[data-toggle-activities]").forEach(b=>b.onclick=()=>{const id=b.dataset.toggleActivities;openActivities.has(id)?openActivities.delete(id):openActivities.add(id);paintProjects()});
-    $("[data-add-activity]").forEach(b=>b.onclick=()=>activityForm(null,b.dataset.addActivity));
+    $$("[data-toggle-activities]").forEach(b=>b.onclick=()=>{const id=b.dataset.toggleActivities;openActivities.has(id)?openActivities.delete(id):openActivities.add(id);paintProjects()});
+    $$("[data-add-activity]").forEach(b=>b.onclick=()=>activityForm(null,b.dataset.addActivity));
     $$("[data-pe]").forEach(b=>b.onclick=()=>projectForm(state.data.projects.find(x=>x.id===b.dataset.pe)));
     $$("[data-pd]").forEach(b=>b.onclick=()=>remove("projects",b.dataset.pd));
     $$("[data-ae]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.ae)));
