@@ -1,5 +1,5 @@
 
-import {ensureExtra,list,append,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
+import {ensureExtra,list,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>["admin","planner","procurement","finance"].includes(u.role)||r.requesterUserId===u.id;
@@ -58,7 +58,7 @@ export async function onRequestPost(ctx){
     const fy=String(p.fiscalYear||""),seq=requests.filter(x=>x.fiscalYear===fy).length+1,now=new Date().toISOString();
     const r={id:"req_"+crypto.randomUUID(),requestNo:"REQ-"+fy+"-"+String(seq).padStart(4,"0"),fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
     await append(ctx.env,"Requests",r);
-    for(const x of rows)await append(ctx.env,"RequestItems",{id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now});
+    await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
     return json({ok:true,request:r},201);
   }catch(e){return bad(e.message||"ส่งคำขอไม่สำเร็จ",500)}
 }
