@@ -120,10 +120,15 @@ async function verify(t,secret){
     const u=JSON.parse(new TextDecoder().decode(from64(p)));return u.exp>Math.floor(Date.now()/1000)?u:null;
   }catch{return null}
 }
+let authUsersCache={rows:null,exp:0};
+async function authUsers(env){
+  if(authUsersCache.rows&&Date.now()<authUsersCache.exp)return authUsersCache.rows;
+  const rows=await list(env,"Users");authUsersCache={rows,exp:Date.now()+15000};return rows;
+}
 export async function auth(ctx,roles=[]){
   const a=ctx.request.headers.get("authorization")||"",t=await verify(a.startsWith("Bearer ")?a.slice(7):"",ctx.env.JWT_SECRET);
   if(!t)return{error:"UNAUTHORIZED"};
-  const us=await list(ctx.env,"Users"),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};
+  const us=await authUsers(ctx.env),row=us.find(x=>x.id===t.id&&x.status==="active");if(!row)return{error:"UNAUTHORIZED"};
   const userRoles=roleList(row.role),u={id:row.id,username:row.username,role:userRoles[0]||"viewer",roles:userRoles.length?userRoles:["viewer"],displayName:row.displayName};
   if(roles.length&&!hasAnyRole(u,roles))return{error:"FORBIDDEN",u};return{u};
 }
