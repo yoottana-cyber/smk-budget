@@ -174,8 +174,8 @@ export async function onRequest(ctx){
         if(sheet==="Expenses"){
           const g=await listMany(env,["Requests"]),reqs=g.Requests;
           const reqNo=(String(row.note||"").match(/REQ-\d{4}-\d{4}/)||String(row.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0];
-          const linked=reqNo?reqs.find(x=>x.requestNo===reqNo):null;
-          if(linked&&String(linked.paymentDocNo||"")!==String(row.docNo||""))await update(env,"Requests",linked.id,{paymentDocNo:String(row.docNo||"").trim(),updatedAt:now});
+          const linked=(row.requestId?reqs.find(x=>x.id===row.requestId):null)||(reqNo?reqs.find(x=>x.requestNo===reqNo):null);
+          if(linked)await update(env,"Requests",linked.id,{paymentDate:row.date,paymentDocNo:String(row.docNo||"").trim(),paidAmount:amount(row.amount),updatedAt:now});
         }
         return json({ok:true,row});
       }
