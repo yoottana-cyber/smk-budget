@@ -7,7 +7,7 @@ const SCHEMA={
   Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt","requestId","fundType"],
   ProjectMeta:["id","projectId","division","sourceSheet","importKey","createdAt","updatedAt"],
   ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
-  Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
+  Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt","requesterUsername"],
   RequestItems:["id","requestId","description","amount","createdAt"],
   Settings:["key","value","updatedAt"],
   AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"]
