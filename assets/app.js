@@ -142,7 +142,7 @@ function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings,health:dataHealth,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,activities,expenses}=filtered();
@@ -416,6 +416,137 @@ async function expenseForm(e=null){
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
 
+
+const REPORT_FUND_LABELS={subsidy:"งบเงินอุดหนุน",activity:"งบกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่น ๆ"};
+const REPORT_STATUS_LABELS={submitted:"รอพัสดุ",procurement:"พัสดุดำเนินการ",finance:"รอการเงิน",returned:"ส่งกลับแก้ไข",rejected:"ไม่อนุมัติ",paid:"จ่ายเงินแล้ว",cancelled:"ยกเลิก"};
+function reportData(filters={}){
+  const projects=state.data.projects||[],activities=state.data.activities||[],expenses=state.data.expenses||[],requests=state.data.requests||[],metas=state.data.projectMeta||[],funds=state.data.activityFunds||[];
+  const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
+  const projectById=Object.fromEntries(projects.map(x=>[x.id,x])),activityById=Object.fromEntries(activities.map(x=>[x.id,x]));
+  const activityIdsByProject=new Map();
+  for(const a of activities){const xs=activityIdsByProject.get(a.projectId)||[];xs.push(a.id);activityIdsByProject.set(a.projectId,xs)}
+  const requestById=Object.fromEntries(requests.map(r=>[r.id,r])),requestByNo=Object.fromEntries(requests.filter(r=>r.requestNo).map(r=>[r.requestNo,r]));
+  const expenseFund=e=>{
+    if(e.fundType)return e.fundType;
+    if(e.requestId&&requestById[e.requestId])return requestById[e.requestId].fundType||"";
+    const no=(String(e.note||"").match(/REQ-\d{4}-\d{4}/)||String(e.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0];
+    return no&&requestByNo[no]?requestByNo[no].fundType||"":"";
+  };
+  const selected=projects.filter(p=>(!filters.year||String(p.fiscalYear||"")===filters.year)&&(!filters.division||(metaMap[p.id]||"ไม่ระบุฝ่าย")===filters.division)&&(!filters.projectId||p.id===filters.projectId));
+  const ids=new Set(selected.map(p=>p.id));
+  const relevantRequests=requests.filter(r=>ids.has(r.projectId)&&(!filters.fundType||r.fundType===filters.fundType));
+  const relevantExpenses=expenses.filter(e=>ids.has(e.projectId)&&(!filters.fundType||expenseFund(e)===filters.fundType));
+  const pending=new Set(["submitted","procurement","finance"]);
+  const projectRows=selected.map(p=>{
+    const aids=new Set(activityIdsByProject.get(p.id)||[]);
+    const budget=filters.fundType?funds.filter(f=>aids.has(f.activityId)&&f.fundType===filters.fundType).reduce((s,f)=>s+num(f.budget),0):num(p.budget);
+    const spent=relevantExpenses.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);
+    const reserved=relevantRequests.filter(r=>r.projectId===p.id&&pending.has(String(r.status||"").trim())).reduce((s,r)=>s+num(r.totalAmount),0);
+    return{...p,division:metaMap[p.id]||"ไม่ระบุฝ่าย",budget,spent,reserved,available:budget-spent-reserved};
+  }).sort((a,b)=>String(a.code||"").localeCompare(String(b.code||""),"th",{numeric:true}));
+  const requestRows=relevantRequests.filter(r=>!filters.status||String(r.status||"").trim()===filters.status).map(r=>({
+    ...r,projectCode:projectById[r.projectId]?.code||"",projectName:projectById[r.projectId]?.name||"",activityName:activityById[r.activityId]?.name||"",division:metaMap[r.projectId]||"ไม่ระบุฝ่าย"
+  })).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  const expenseRows=relevantExpenses.map(e=>({
+    ...e,projectCode:projectById[e.projectId]?.code||"",projectName:projectById[e.projectId]?.name||"",activityName:activityById[e.activityId]?.name||"",division:metaMap[e.projectId]||"ไม่ระบุฝ่าย",resolvedFundType:expenseFund(e)
+  })).sort((a,b)=>String(b.date||b.createdAt||"").localeCompare(String(a.date||a.createdAt||"")));
+  const summary={
+    budget:projectRows.reduce((s,x)=>s+x.budget,0),
+    spent:projectRows.reduce((s,x)=>s+x.spent,0),
+    reserved:projectRows.reduce((s,x)=>s+x.reserved,0)
+  };
+  summary.available=summary.budget-summary.spent-summary.reserved;
+  return{projectRows,requestRows,expenseRows,summary,metaMap};
+}
+function reportFiltersText(filters){
+  const parts=[];
+  if(filters.year)parts.push("ปีงบประมาณ "+filters.year);
+  if(filters.division)parts.push("ฝ่าย "+filters.division);
+  if(filters.fundType)parts.push(REPORT_FUND_LABELS[filters.fundType]||filters.fundType);
+  if(filters.status)parts.push(REPORT_STATUS_LABELS[filters.status]||filters.status);
+  return parts.join(" • ")||"ทุกข้อมูล";
+}
+function reportTableHTML(type,data){
+  if(type==="requests")return `<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>เลขที่คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอดขอ</th><th>สถานะ</th></tr></thead><tbody>${data.requestRows.length?data.requestRows.map(r=>`<tr><td>${esc((r.createdAt||"").slice(0,10)||"-")}</td><td><strong>${esc(r.requestNo||"-")}</strong></td><td>${esc(r.requesterName||"-")}</td><td><strong>${esc((r.projectCode?r.projectCode+" - ":"")+(r.projectName||""))}</strong><br><small>${esc(r.activityName||"-")}</small></td><td>${esc(REPORT_FUND_LABELS[r.fundType]||r.fundType||"-")}</td><td class="num">${money(r.totalAmount)}</td><td><span class="badge gray">${esc(REPORT_STATUS_LABELS[String(r.status||"").trim()]||r.status||"-")}</span></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการ</td></tr>'}</tbody></table></div>`;
+  if(type==="expenses")return `<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>เลข บจ.</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th>รายละเอียด</th><th>ผู้รับเงิน</th><th class="num">จำนวนเงิน</th></tr></thead><tbody>${data.expenseRows.length?data.expenseRows.map(e=>`<tr><td>${esc(e.date||"-")}</td><td><strong>${esc(e.docNo||"-")}</strong></td><td><strong>${esc((e.projectCode?e.projectCode+" - ":"")+(e.projectName||""))}</strong><br><small>${esc(e.activityName||"-")}</small></td><td>${esc(REPORT_FUND_LABELS[e.resolvedFundType]||e.resolvedFundType||"-")}</td><td>${esc(e.description||"-")}</td><td>${esc(e.payee||"-")}</td><td class="num">${money(e.amount)}</td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการ</td></tr>'}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>ฝ่าย</th><th>รหัส</th><th>โครงการ</th><th>ผู้รับผิดชอบ</th><th class="num">งบประมาณ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>${data.projectRows.length?data.projectRows.map(p=>`<tr><td>${esc(p.division)}</td><td><strong>${esc(p.code||"-")}</strong></td><td>${esc(p.name||"-")}</td><td>${esc(p.owner||"-")}</td><td class="num">${money(p.budget)}</td><td class="num">${money(p.spent)}</td><td class="num">${money(p.reserved)}</td><td class="num"><strong>${money(p.available)}</strong></td></tr>`).join(""):'<tr><td colspan="8" class="empty">ไม่พบรายการ</td></tr>'}</tbody></table></div>`;
+}
+function exportReportExcel(filters){
+  if(typeof XLSX==="undefined")return Swal.fire({icon:"error",title:"ไม่สามารถส่งออก Excel",text:"ไลบรารี Excel ยังโหลดไม่สำเร็จ"});
+  const data=reportData(filters),wb=XLSX.utils.book_new();
+  const projectRows=data.projectRows.map(p=>({"ฝ่าย":p.division,"รหัสโครงการ":p.code,"ชื่อโครงการ":p.name,"ผู้รับผิดชอบ":p.owner,"งบประมาณ":p.budget,"จ่ายแล้ว":p.spent,"รอเบิก":p.reserved,"พร้อมใช้":p.available}));
+  const requestRows=data.requestRows.map(r=>({"วันที่":(r.createdAt||"").slice(0,10),"เลขที่คำขอ":r.requestNo,"ผู้ขอเบิก":r.requesterName,"ฝ่าย":r.division,"รหัสโครงการ":r.projectCode,"โครงการ":r.projectName,"กิจกรรม":r.activityName,"ประเภทเงิน":REPORT_FUND_LABELS[r.fundType]||r.fundType,"ยอดขอ":num(r.totalAmount),"สถานะ":REPORT_STATUS_LABELS[String(r.status||"").trim()]||r.status}));
+  const expenseRows=data.expenseRows.map(e=>({"วันที่":e.date,"เลข บจ.":e.docNo,"ฝ่าย":e.division,"รหัสโครงการ":e.projectCode,"โครงการ":e.projectName,"กิจกรรม":e.activityName,"ประเภทเงิน":REPORT_FUND_LABELS[e.resolvedFundType]||e.resolvedFundType,"รายละเอียด":e.description,"ผู้รับเงิน":e.payee,"จำนวนเงิน":num(e.amount)}));
+  const addSheet=(name,rows,widths)=>{
+    const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{"ข้อมูล":"ไม่พบรายการ"}]);
+    ws["!cols"]=widths.map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);
+  };
+  addSheet("สรุปโครงการ",projectRows,[16,14,42,28,16,16,16,16]);
+  addSheet("คำขอเบิก",requestRows,[13,18,26,16,14,38,36,28,16,20]);
+  addSheet("รายจ่าย",expenseRows,[13,14,16,14,38,36,28,45,28,16]);
+  const y=filters.year||"ทุกปี",file="รายงานงบประมาณ_"+y+"_"+today()+".xlsx";
+  XLSX.writeFile(wb,file);
+}
+function exportReportPdf(type,filters){
+  const data=reportData(filters),school=$("#sidebarSchoolName")?.textContent||"โรงเรียนสามัคคีศึกษา";
+  const titles={summary:"รายงานสรุปงบประมาณตามโครงการ",requests:"รายงานรายการขอเบิกเงิน",expenses:"รายงานรายจ่าย"},title=titles[type]||titles.summary;
+  const w=window.open("","_blank");if(!w)return Swal.fire({icon:"warning",title:"เบราว์เซอร์บล็อกหน้าต่างพิมพ์",text:"กรุณาอนุญาต Pop-up แล้วลองส่งออก PDF อีกครั้ง"});
+  const html=reportTableHTML(type,data).replaceAll('class="table-wrap"','').replaceAll('class="num"','class="num"');
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+    @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:"Sarabun","Tahoma",sans-serif;color:#111827;font-size:11px;margin:0}h1{font-size:20px;margin:0;text-align:center}h2{font-size:15px;margin:4px 0 0;text-align:center;font-weight:500}.meta{text-align:center;margin:6px 0 14px;color:#475569}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px}.card{border:1px solid #d1d5db;border-radius:8px;padding:8px}.card small{display:block;color:#64748b}.card strong{font-size:14px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:5px 6px;vertical-align:top}th{background:#f1f5f9;text-align:left}.num{text-align:right;white-space:nowrap}.badge{display:inline-block}small{color:#64748b}.foot{margin-top:8px;text-align:right;color:#64748b}@media print{button{display:none}}
+  </style></head><body><h1>${esc(school)}</h1><h2>${esc(title)}</h2><div class="meta">${esc(reportFiltersText(filters))}</div>
+  <div class="summary"><div class="card"><small>งบประมาณ</small><strong>${money(data.summary.budget)}</strong></div><div class="card"><small>จ่ายแล้ว</small><strong>${money(data.summary.spent)}</strong></div><div class="card"><small>รอเบิก</small><strong>${money(data.summary.reserved)}</strong></div><div class="card"><small>พร้อมใช้</small><strong>${money(data.summary.available)}</strong></div></div>
+  ${html}<div class="foot">จัดทำเมื่อ ${new Date().toLocaleString("th-TH")}</div><script>setTimeout(()=>window.print(),500)<\/script></body></html>`);
+  w.document.close();
+}
+function reports(){
+  const projects=state.data.projects||[],metas=state.data.projectMeta||[];
+  const metaMap=Object.fromEntries(metas.map(x=>[x.projectId,x.division||"ไม่ระบุฝ่าย"]));
+  const years=[...new Set(projects.map(p=>String(p.fiscalYear||"")).filter(Boolean))].sort().reverse();
+  const divisions=[...new Set(projects.map(p=>metaMap[p.id]||"ไม่ระบุฝ่าย"))].sort((a,b)=>a.localeCompare(b,"th"));
+  const fundOptions=Object.entries(REPORT_FUND_LABELS),statusOptions=Object.entries(REPORT_STATUS_LABELS);
+  $("#content").innerHTML=`<section class="panel report-panel">
+    <div class="panel-head"><div><h3>รายงานงบประมาณ</h3><p class="muted">กรองข้อมูลแล้วส่งออก Excel หรือ PDF ได้ทันที</p></div><div class="actions"><button id="reportExcel" class="btn btn-ghost"><i data-lucide="file-spreadsheet"></i>Excel</button><button id="reportPdf" class="btn btn-primary"><i data-lucide="file-down"></i>PDF</button></div></div>
+    <div class="report-filters">
+      <label>รูปแบบรายงาน<select id="reportType" class="control"><option value="summary">สรุปโครงการ</option><option value="requests">รายการขอเบิก</option><option value="expenses">รายจ่าย</option></select></label>
+      <label>ปีงบประมาณ<select id="reportYear" class="control"><option value="">ทุกปี</option>${years.map(y=>`<option value="${esc(y)}" ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}</select></label>
+      <label>ฝ่าย<select id="reportDivision" class="control"><option value="">ทุกฝ่าย</option>${divisions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label>
+      <label>โครงการ<select id="reportProject" class="control"><option value="">ทุกโครงการ</option></select></label>
+      <label>ประเภทเงิน<select id="reportFund" class="control"><option value="">ทุกประเภท</option>${fundOptions.map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+      <label>สถานะคำขอ<select id="reportStatus" class="control"><option value="">ทุกสถานะ</option>${statusOptions.map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+    </div>
+  </section>
+  <section id="reportSummary" class="stats-grid"></section>
+  <section class="panel"><div id="reportCaption" class="report-caption"></div><div id="reportTable"></div></section>`;
+
+  const filters=()=>({year:$("#reportYear").value,division:$("#reportDivision").value,projectId:$("#reportProject").value,fundType:$("#reportFund").value,status:$("#reportStatus").value});
+  const fillProjects=()=>{
+    const f=filters(),current=$("#reportProject").value;
+    const rows=projects.filter(p=>(!f.year||String(p.fiscalYear||"")===f.year)&&(!f.division||(metaMap[p.id]||"ไม่ระบุฝ่าย")===f.division)).sort((a,b)=>String(a.code||"").localeCompare(String(b.code||""),"th",{numeric:true}));
+    $("#reportProject").innerHTML='<option value="">ทุกโครงการ</option>'+rows.map(p=>`<option value="${p.id}">${esc((p.code?p.code+" - ":"")+p.name)}</option>`).join("");
+    if(rows.some(p=>p.id===current))$("#reportProject").value=current;
+  };
+  const paint=()=>{
+    const f=filters(),type=$("#reportType").value,data=reportData(f);
+    $("#reportSummary").innerHTML=[
+      ["wallet-cards","งบประมาณ",data.summary.budget],
+      ["badge-dollar-sign","จ่ายแล้ว",data.summary.spent],
+      ["clock-3","รอเบิก",data.summary.reserved],
+      ["piggy-bank","พร้อมใช้",data.summary.available]
+    ].map(x=>`<article class="stat-card"><span class="stat-icon"><i data-lucide="${x[0]}"></i></span><div><small>${x[1]}</small><strong>${money(x[2])}</strong></div></article>`).join("");
+    const typeLabel={summary:"สรุปโครงการ",requests:"รายการขอเบิก",expenses:"รายจ่าย"}[type];
+    $("#reportCaption").innerHTML=`<div><strong>${typeLabel}</strong><p class="muted">${esc(reportFiltersText(f))}</p></div><span class="badge gray">${type==="summary"?data.projectRows.length:type==="requests"?data.requestRows.length:data.expenseRows.length} รายการ</span>`;
+    $("#reportTable").innerHTML=reportTableHTML(type,data);
+    $("#reportStatus").disabled=type!=="requests";
+    lucide.createIcons();
+  };
+  $("#reportYear").onchange=()=>{fillProjects();paint()};
+  $("#reportDivision").onchange=()=>{fillProjects();paint()};
+  $("#reportProject").onchange=paint;$("#reportFund").onchange=paint;$("#reportStatus").onchange=paint;$("#reportType").onchange=paint;
+  $("#reportExcel").onclick=()=>exportReportExcel(filters());
+  $("#reportPdf").onclick=()=>exportReportPdf($("#reportType").value,filters());
+  fillProjects();paint();lucide.createIcons();
+}
 function healthStatusMeta(status){
   if(status==="critical")return{label:"พบปัญหาที่ต้องตรวจสอบ",icon:"circle-alert",cls:"critical"};
   if(status==="warning")return{label:"พบรายการที่ควรตรวจสอบ",icon:"triangle-alert",cls:"warning"};
