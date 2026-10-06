@@ -85,7 +85,8 @@ export async function onRequestGet(ctx){
     const a=await auth(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบ":"ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const action=new URL(ctx.request.url).searchParams.get("action")||"backup";
     if(action!=="backup")return bad("คำสั่งไม่ถูกต้อง");
-    return json({backup:await backupData(ctx.env)});
+    const backup=await backupData(ctx.env);await writeAudit(ctx.env,a.u,"BACKUP","system","backup","ดาวน์โหลดข้อมูลสำรองระบบ",{createdAt:backup.createdAt});
+    return json({backup});
   }catch(e){return bad(e.message||"สร้างไฟล์สำรองไม่สำเร็จ",500)}
 }
 
