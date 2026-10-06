@@ -1,4 +1,4 @@
-import {ensureExtra,listRowsMany,batchUpdateRows,auth,json,bad,amount,readBody,writeAudit} from "../../src/budget-db.js";
+import {ensureExtra,listRowsMany,batchUpdateRows,auth,json,bad,amount,readBody,writeAudit,normPerson} from "../../src/budget-db.js";
 
 const VALID_REQUEST_STATUS=new Set(["submitted","procurement","finance","returned","rejected","paid","cancelled"]);
 const round2=n=>Math.round((Number(n)||0)*100)/100;
@@ -91,7 +91,8 @@ async function repair(env,user){
   const g=await load(env),requests=g.Requests,expenses=g.Expenses,funds=g.ActivityFunds,users=g.Users;
   const requestById=Object.fromEntries(requests.map(r=>[r.id,r]));
   const requestByNo=Object.fromEntries(requests.filter(r=>r.requestNo).map(r=>[r.requestNo,r]));
-  const userById=Object.fromEntries(users.map(u=>[u.id,u]));
+  const userById=Object.fromEntries(users.map(u=>[u.id,u])),usersByName=new Map();
+  for(const u of users){const n=normPerson(u.displayName);if(!n)continue;const a=usersByName.get(n)||[];a.push(u);usersByName.set(n,a)}
   const fundByActivity=new Map();
   for(const f of funds){
     if(amount(f.budget)<=0)continue;
@@ -117,8 +118,9 @@ async function repair(env,user){
   const requestUpdates=[];
   for(const r of requests){
     if(String(r.requesterUsername||"").trim())continue;
-    const u=r.requesterUserId?userById[r.requesterUserId]:null;
-    if(u?.username){requestUpdates.push({...r,requesterUsername:u.username});requestUsers++}
+    let u=r.requesterUserId?userById[r.requesterUserId]:null;
+    if(!u&&r.requesterName){const matches=usersByName.get(normPerson(r.requesterName))||[];if(matches.length===1)u=matches[0]}
+    if(u?.username){requestUpdates.push({...r,requesterUserId:r.requesterUserId||u.id,requesterUsername:u.username});requestUsers++}
   }
   if(requestUpdates.length)await batchUpdateRows(env,"Requests",requestUpdates);
 
