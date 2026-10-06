@@ -157,3 +157,9 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .health-severity-critical{background:#fee2e2;color:#b91c1c}.health-severity-warning{background:#fef3c7;color:#a16207}.health-severity-info{background:#dbeafe;color:#1d4ed8}
 .health-fixable{color:#0f766e;font-weight:600}.health-ok-icon{width:18px;height:18px;color:#16a34a}.health-issue-active td{background:#fffdf8}
 @media(max-width:760px){.health-hero{align-items:flex-start;flex-direction:column}.health-hero .actions{width:100%;justify-content:flex-start}.health-counts span{font-size:.84rem}}
+
+.nav-item{position:relative}
+.nav-item .nav-label{min-width:0}
+.nav-badge{margin-left:auto;min-width:22px;height:22px;padding:0 6px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#dc2626;color:#fff;font-size:.72rem;font-weight:700;line-height:1;box-shadow:0 0 0 2px rgba(255,255,255,.72)}
+.nav-item.active .nav-badge{background:#fff;color:#b91c1c;box-shadow:none}
+.nav-badge.hidden{display:none!important}
