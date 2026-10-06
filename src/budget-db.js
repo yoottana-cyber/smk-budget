@@ -9,7 +9,9 @@ const SCHEMA={
   Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
   RequestItems:["id","requestId","description","amount","createdAt"],
   Settings:["key","value","updatedAt"],
-  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"]
+  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"],
+  DocumentCounters:["key","value","updatedAt"],
+  DocumentLocks:["id","resource","owner","createdAt","expiresAt","releasedAt"]
 };
 const enc=new TextEncoder();
 export const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -97,7 +99,7 @@ let ensureExtraReadyUntil=0;
 export async function ensureExtra(env){
   if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
-  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","AuditLog"],missing=extra.filter(x=>!have.has(x));
+  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","AuditLog","DocumentCounters","DocumentLocks"],missing=extra.filter(x=>!have.has(x));
   if(missing.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
   const headerSheets=[...new Set([...missing,"Expenses"])];
   const headerGroups=await batchValues(env,headerSheets.map(s=>s+"!1:1"));
@@ -161,6 +163,41 @@ export async function writeAudit(env,user,action,entityType,entityId="",summary=
       details:String(detailText||"").slice(0,8000)
     });
   }catch{}
+}
+
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function acquireDocumentLock(env,resource){
+  const id="dlock_"+crypto.randomUUID(),owner=crypto.randomUUID(),createdAt=new Date().toISOString(),expiresAt=new Date(Date.now()+15000).toISOString();
+  const res=await append(env,"DocumentLocks",{id,resource,owner,createdAt,expiresAt,releasedAt:""});
+  let myRow=Number(String(res?.updates?.updatedRange||"").match(/![A-Z]+(\d+):/)?.[1]||0);
+  const waits=[0,120,220,360,520,760,1000,1300];
+  for(const wait of waits){
+    if(wait)await sleep(wait);
+    const rows=await listRows(env,"DocumentLocks");
+    const me=rows.find(x=>x.id===id);if(me)myRow=me.__row;
+    const now=Date.now();
+    const active=rows.filter(x=>x.resource===resource&&!x.releasedAt&&Number.isFinite(Date.parse(x.expiresAt))&&Date.parse(x.expiresAt)>now).sort((a,b)=>a.__row-b.__row);
+    if(active[0]?.id===id)return{id,row:myRow};
+  }
+  if(myRow)await batchUpdateRows(env,"DocumentLocks",[{__row:myRow,id:"",resource:"",owner:"",createdAt:"",expiresAt:"",releasedAt:""}]);
+  throw new Error("ระบบกำลังออกเลขเอกสารให้ผู้ใช้อื่น กรุณาลองอีกครั้ง");
+}
+async function releaseDocumentLock(env,lock){
+  try{if(lock?.row)await batchUpdateRows(env,"DocumentLocks",[{__row:lock.row,id:"",resource:"",owner:"",createdAt:"",expiresAt:"",releasedAt:""}])}catch{}
+}
+export async function nextDocumentNumber(env,kind,fiscalYear,minValue=0){
+  await ensureExtra(env);
+  const fy=String(fiscalYear||"").trim();if(!fy)throw new Error("ไม่พบปีงบประมาณสำหรับออกเลขเอกสาร");
+  if(!["request","expense"].includes(kind))throw new Error("ชนิดเลขเอกสารไม่ถูกต้อง");
+  const key=kind+":"+fy,lock=await acquireDocumentLock(env,key);
+  try{
+    const rows=await listRows(env,"DocumentCounters");
+    const current=rows.find(x=>x.key===key);
+    const base=Math.max(Number(current?.value||0)||0,Number(minValue||0)||0),next=base+1,now=new Date().toISOString();
+    if(current)await batchUpdateRows(env,"DocumentCounters",[{...current,value:next,updatedAt:now}]);
+    else await append(env,"DocumentCounters",{key,value:next,updatedAt:now});
+    return kind==="request"?"REQ-"+fy+"-"+String(next).padStart(4,"0"):"บจ."+next;
+  }finally{await releaseDocumentLock(env,lock)}
 }
 export const PENDING_STATUSES=["submitted","procurement","finance"];
 export const FUND_LABELS={subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"};
