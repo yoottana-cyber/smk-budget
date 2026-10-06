@@ -74,7 +74,7 @@ async function ensure(env){
   for(const [s,h] of Object.entries(SCHEMA)){const r=await values(env,`${s}!1:1`),row=r[0]||[];if(row.length<h.length||h.some((v,i)=>String(row[i]||"")!==v))await put(env,`${s}!A1:${col(h.length)}1`,[h])}
 }
 async function hsign(data,secret){const k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return new Uint8Array(await crypto.subtle.sign("HMAC",k,enc.encode(data)))}
-async function token(user,secret){const h=b64t(JSON.stringify({alg:"HS256",typ:"JWT"})),p=b64t(JSON.stringify({...user,exp:Math.floor(Date.now()/1000)+28800})),d=`${h}.${p}`;return`${d}.${b64u(await hsign(d,secret))}`}
+async function token(user,secret,ttlSeconds=28800){const ttl=Math.max(1800,Math.min(Number(ttlSeconds)||28800,2592000)),h=b64t(JSON.stringify({alg:"HS256",typ:"JWT"})),p=b64t(JSON.stringify({...user,exp:Math.floor(Date.now()/1000)+ttl})),d=`${h}.${p}`;return`${d}.${b64u(await hsign(d,secret))}`}
 async function verify(t,secret){try{const[h,p,s]=t.split("."),k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["verify"]),ok=await crypto.subtle.verify("HMAC",k,from64(s),enc.encode(`${h}.${p}`));if(!ok)return null;const u=JSON.parse(new TextDecoder().decode(from64(p)));return u.exp>Math.floor(Date.now()/1000)?u:null}catch{return null}}
 let usersCache={rows:null,exp:0};
 async function usersList(env,force=false){if(!force&&usersCache.rows&&Date.now()<usersCache.exp)return usersCache.rows;const rows=await list(env,"Users");usersCache={rows,exp:Date.now()+15000};return rows}
@@ -94,7 +94,7 @@ export async function onRequest(ctx){
 
     if(path==="login"&&method==="POST"){
       const d=await body(ctx.request),us=await usersList(env),u=us.find(x=>x.username===d.username&&x.status==="active");if(!u||u.passwordHash!==await sha(`${env.PASSWORD_PEPPER}:${d.password}`))return bad("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",401);
-      const safe=safeUser(u);return json({token:await token(safe,env.JWT_SECRET),user:safe});
+      const safe=safeUser(u),remember=d.remember===true,expiresIn=remember?2592000:28800;return json({token:await token(safe,env.JWT_SECRET,expiresIn),user:safe,expiresIn});
     }
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
