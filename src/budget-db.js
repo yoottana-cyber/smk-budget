@@ -3,7 +3,7 @@ const SCHEMA={
   Users:["id","username","passwordHash","role","displayName","status","createdAt"],
   Projects:["id","fiscalYear","code","name","owner","budget","status","createdAt","updatedAt"],
   Activities:["id","projectId","code","name","budget","owner","status","createdAt","updatedAt"],
-  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt"],
+  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt","requestId","fundType"],
   ProjectMeta:["id","projectId","division","sourceSheet","importKey","createdAt","updatedAt"],
   ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
   Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
@@ -97,10 +97,11 @@ export async function ensureExtra(env){
   if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
   const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"],missing=extra.filter(x=>!have.has(x));
-  if(!missing.length){ensureExtraReadyUntil=Date.now()+300000;return;}
-  await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
-  const headerData=missing.map(s=>{const h=SCHEMA[s];return{range:s+"!A1:"+col(h.length)+"1",values:[h]}});
-  await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:headerData})});
+  if(missing.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
+  const headerSheets=[...new Set([...missing,"Expenses"])];
+  const headerGroups=await batchValues(env,headerSheets.map(s=>s+"!1:1"));
+  const headerData=headerSheets.map((s,i)=>({s,h:SCHEMA[s],row:headerGroups[i]?.[0]||[]})).filter(x=>x.row.length<x.h.length||x.h.some((v,j)=>String(x.row[j]||"")!==v)).map(x=>({range:x.s+"!A1:"+col(x.h.length)+"1",values:[x.h]}));
+  if(headerData.length)await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:headerData})});
   if(missing.includes("Settings")){
     const now=new Date().toISOString();
     await bulkAppend(env,"Settings",[
