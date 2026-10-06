@@ -15,6 +15,7 @@ function requestStatusLabel(path,method="GET"){
   const m=String(method||"GET").toUpperCase(),p=String(path||"");
   if(p.includes("/login"))return"กำลังเข้าสู่ระบบ...";
   if(p.includes("/import-projects"))return"กำลังนำเข้าข้อมูล...";
+  if(p.includes("/admin-tools"))return m==="GET"?"กำลังเตรียมข้อมูลสำรอง...":"กำลังดำเนินการเครื่องมือระบบ...";
   if(p.includes("/data-health"))return m==="GET"?"กำลังตรวจสุขภาพข้อมูล...":"กำลังซ่อมข้อมูล...";
   if(p.includes("/data-integrity"))return"กำลังตรวจสอบข้อมูล...";
   if(p.includes("/audit-log"))return"กำลังโหลดประวัติ...";
@@ -165,7 +166,7 @@ function logout(show=true){
   if(show){Swal.close();Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 }
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden");resetLoginUi()}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#adminToolsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
 function setNavBadge(id,count,label){
   const el=$("#"+id);if(!el)return;
   const n=Math.max(0,Number(count)||0);
@@ -207,7 +208,7 @@ function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,activities,expenses}=filtered();
