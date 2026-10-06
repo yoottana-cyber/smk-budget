@@ -55,7 +55,18 @@ async function newRequest(){
   try{
     const ctx=await api("/api/request-context");
     if(!ctx.projects.length)return Swal.fire({icon:"info",title:"ไม่พบโครงการที่รับผิดชอบ",text:"กรุณาตรวจชื่อผู้ใช้งานให้ตรงกับชื่อผู้รับผิดชอบโครงการ หรือติดต่อผู้ดูแลระบบ"});
-    const pOpts=ctx.projects.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}${p.division?" ["+esc(p.division)+"]":""}</option>`).join("");
+    const divisionOrder=["วิชาการ","งบประมาณ","บุคคล","กิจการนักเรียน","บริหารทั่วไป"];
+    const divisions=[...new Set(ctx.projects.map(p=>p.division||"ไม่ระบุฝ่าย"))].sort((a,b)=>{
+      const ia=divisionOrder.indexOf(a),ib=divisionOrder.indexOf(b);
+      if(ia>=0&&ib>=0)return ia-ib;
+      if(ia>=0)return-1;if(ib>=0)return 1;
+      return a.localeCompare(b,"th");
+    });
+    const pOpts=divisions.map(division=>{
+      const rows=ctx.projects.filter(p=>(p.division||"ไม่ระบุฝ่าย")===division)
+        .sort((a,b)=>String(a.code||"").localeCompare(String(b.code||""),"th",{numeric:true}));
+      return `<optgroup label="${esc(division)}">${rows.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("")}</optgroup>`;
+    }).join("");
     const r=await Swal.fire({
       title:"ส่งรายการขอเบิกเงินโครงการ",width:860,
       html:`<div class="form-stack request-form" style="text-align:left">
