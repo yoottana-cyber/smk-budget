@@ -11,9 +11,11 @@ const DEFAULTS={
   schoolLogo:""
 };
 
+const validLogo=v=>!v||/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v);
 const asObject=rows=>{
   const out={...DEFAULTS};
   for(const row of rows)if(ALLOWED_KEYS.includes(row.key))out[row.key]=String(row.value??"");
+  if(!validLogo(out.schoolLogo))out.schoolLogo="";
   return out;
 };
 
@@ -36,7 +38,7 @@ export async function onRequestPut(ctx){
     await ensureExtra(ctx.env);
     const a=await auth(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบ":"ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const d=await readBody(ctx.request),rows=await list(ctx.env,"Settings"),now=new Date().toISOString();
-    if(d.schoolLogo!==undefined&&String(d.schoolLogo||"").length>45000)return bad("ไฟล์ตราโรงเรียนมีขนาดใหญ่เกินไป กรุณาใช้รูปที่เล็กลง",413);
+    if(d.schoolLogo!==undefined){const logo=String(d.schoolLogo||"");if(logo.length>45000)return bad("ไฟล์ตราโรงเรียนมีขนาดใหญ่เกินไป กรุณาใช้รูปที่เล็กลง",413);if(!validLogo(logo))return bad("รูปแบบไฟล์ตราโรงเรียนไม่ถูกต้อง");}
     const values={};
     for(const key of ALLOWED_KEYS)if(d[key]!==undefined)values[key]=String(d[key]??"").trim();
     for(const [key,value] of Object.entries(values)){
