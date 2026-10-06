@@ -10,7 +10,9 @@ const SCHEMA={
   Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt","requesterUsername"],
   RequestItems:["id","requestId","description","amount","createdAt"],
   Settings:["key","value","updatedAt"],
-  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"]
+  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"],
+  PushSubscriptions:["id","userId","username","endpoint","p256dh","auth","userAgent","status","createdAt","updatedAt"],
+  Notifications:["id","userId","username","title","body","url","tag","isRead","createdAt","readAt"]
 };
 const enc=new TextEncoder();
 const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
