@@ -129,3 +129,15 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .app-busy #refreshBtn svg{animation:status-spin .8s linear infinite}
 @keyframes status-spin{to{transform:rotate(360deg)}}
 @media(max-width:760px){.app-status{right:10px;bottom:10px;max-width:calc(100vw - 20px);font-size:.76rem;padding:8px 11px}}
+
+.request-timeline{position:relative;padding:4px 0 4px 24px}
+.request-timeline:before{content:"";position:absolute;left:7px;top:10px;bottom:10px;width:2px;background:#e2e8f0}
+.request-timeline-item{position:relative;display:grid;grid-template-columns:1fr;margin:0 0 16px}
+.request-timeline-dot{position:absolute;left:-22px;top:6px;width:12px;height:12px;border-radius:50%;background:#0f766e;border:3px solid #ccfbf1;box-shadow:0 0 0 2px #fff}
+.request-timeline-body{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:11px 13px}
+.request-timeline-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:4px}
+.request-timeline-head span{font-size:.78rem;color:#64748b;white-space:nowrap}
+.timeline-reason{margin-top:8px;padding:8px 10px;border-left:3px solid #f59e0b;background:#fffbeb;border-radius:6px;font-size:.9rem}
+.btn.danger,.btn-ghost.danger{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
+.btn.danger:hover,.btn-ghost.danger:hover{background:#fee2e2}
+@media(max-width:760px){.request-timeline-head{align-items:flex-start;flex-direction:column;gap:2px}}
