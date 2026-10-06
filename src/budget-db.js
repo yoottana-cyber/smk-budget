@@ -101,7 +101,7 @@ export async function update(env,sheet,id,obj){
   const old=Object.fromEntries(h.map((k,j)=>[k,r[i][j]??""])),m={...old,...obj};
   await put(env,sheet+"!A"+(i+1)+":"+col(h.length)+(i+1),[h.map(k=>m[k]??"")]);return m;
 }
-let ensureExtraReadyUntil=0;
+let ensureExtraReadyUntil=0,shiftedRequestRepairDone=false;
 export async function ensureExtra(env){
   if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
@@ -123,17 +123,20 @@ export async function ensureExtra(env){
       {key:"schoolLogo",value:"",updatedAt:now}
     ]);
   }
-  const requestWidth=SCHEMA.Requests.length,wideWidth=44,wide=await values(env,"Requests!A:AR"),repairData=[];
-  for(let i=1;i<wide.length;i++){
-    const row=wide[i]||[];if(String(row[0]||"").startsWith("req_"))continue;
-    const start=row.findIndex((v,j)=>j>0&&String(v||"").startsWith("req_"));
-    if(start>0){
-      const req=row.slice(start,start+requestWidth),fixed=Array(wideWidth).fill("");
-      for(let j=0;j<requestWidth;j++)fixed[j]=req[j]??"";
-      repairData.push({range:"Requests!A"+(i+1)+":AR"+(i+1),values:[fixed]});
+  if(!shiftedRequestRepairDone){
+    const requestWidth=SCHEMA.Requests.length,wideWidth=44,wide=await values(env,"Requests!A:AR"),repairData=[];
+    for(let i=1;i<wide.length;i++){
+      const row=wide[i]||[];if(String(row[0]||"").startsWith("req_"))continue;
+      const start=row.findIndex((v,j)=>j>0&&String(v||"").startsWith("req_"));
+      if(start>0){
+        const req=row.slice(start,start+requestWidth),fixed=Array(wideWidth).fill("");
+        for(let j=0;j<requestWidth;j++)fixed[j]=req[j]??"";
+        repairData.push({range:"Requests!A"+(i+1)+":AR"+(i+1),values:[fixed]});
+      }
     }
+    if(repairData.length)await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:repairData})});
+    shiftedRequestRepairDone=true;
   }
-  if(repairData.length)await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:repairData})});
   ensureExtraReadyUntil=Date.now()+300000;
 }
 async function verify(t,secret){
