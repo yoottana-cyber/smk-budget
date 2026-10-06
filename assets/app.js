@@ -1,4 +1,4 @@
-const state={token:sessionStorage.getItem("budget_token")||"",user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{}};
+const state={token:sessionStorage.getItem("budget_token")||"",user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{},integrityReady:false,integrityReport:null};
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const num=n=>Number(String(n??0).replace(/,/g,""))||0;
@@ -30,10 +30,10 @@ async function login(e){
   e.preventDefault(); const b=e.submitter;b.disabled=true;
   try{const x=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("#username").value.trim(),password:$("#password").value})});state.token=x.token;state.user=x.user;sessionStorage.setItem("budget_token",x.token);showApp();await refreshData()}catch(e){err(e)}finally{b.disabled=false}
 }
-function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
+function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
 function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
-async function refreshData(){try{state.data=await api("/api/data");years();render()}catch(e){err(e)}}
+async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
@@ -56,9 +56,17 @@ function dashboard(){
 
   const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่น ๆ"};
   const fundOrder=["subsidy","activity","income","other"];
+  const requestById=Object.fromEntries(requests.map(r=>[r.id,r])),requestByNo=Object.fromEntries(requests.map(r=>[r.requestNo,r]));
+  const expenseFund=e=>{
+    if(e.fundType)return e.fundType;
+    if(e.requestId&&requestById[e.requestId])return requestById[e.requestId].fundType||"";
+    const no=(String(e.note||"").match(/REQ-\d{4}-\d{4}/)||String(e.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0];
+    return no&&requestByNo[no]?requestByNo[no].fundType||"":"";
+  };
+  const unclassifiedExpenses=expenses.filter(e=>!expenseFund(e)).length;
   const fundRows=fundOrder.map(type=>{
     const fb=funds.filter(f=>f.fundType===type).reduce((s,f)=>s+num(f.budget),0);
-    const paid=requests.filter(r=>r.fundType===type&&r.status==="paid").reduce((s,r)=>s+num(r.paidAmount||r.totalAmount),0);
+    const paid=expenses.filter(e=>expenseFund(e)===type).reduce((s,e)=>s+num(e.amount),0);
     const hold=requests.filter(r=>r.fundType===type&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
     return{type,label:fundLabels[type],budget:fb,paid,reserved:hold,available:fb-paid-hold};
   });
@@ -74,14 +82,14 @@ function dashboard(){
     const dr=requests.filter(r=>ids.has(r.projectId)&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
     const byFund=fundOrder.map(type=>{
       const fb=funds.filter(f=>f.fundType===type&&ids.has(activityProject[f.activityId])).reduce((s,f)=>s+num(f.budget),0);
-      const paid=requests.filter(r=>ids.has(r.projectId)&&r.fundType===type&&r.status==="paid").reduce((s,r)=>s+num(r.paidAmount||r.totalAmount),0);
+      const paid=expenses.filter(e=>ids.has(e.projectId)&&expenseFund(e)===type).reduce((s,e)=>s+num(e.amount),0);
       const hold=requests.filter(r=>ids.has(r.projectId)&&r.fundType===type&&pendingStatuses.has(r.status)).reduce((s,r)=>s+num(r.totalAmount),0);
       return{type,label:fundLabels[type],budget:fb,paid,reserved:hold,available:fb-paid-hold};
     });
     return{division,budget:db,spent:ds,reserved:dr,available:db-ds-dr,byFund};
   }).sort((a,b)=>b.budget-a.budget);
 
-  $("#content").innerHTML=`${needsImportRepair&&projects.length?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><div class="toolbar" style="margin:0"><div><strong>ข้อมูลประเภทเงิน/ฝ่ายยังไม่ครบ</strong><p class="muted" style="margin:3px 0 0">โครงการถูกนำเข้าแล้ว แต่ข้อมูลแยกประเภทเงินหรือฝ่ายยังไม่ได้ผูกกับโครงการเดิม กรุณานำเข้าไฟล์ Excel ต้นแบบเดิมอีกครั้ง ระบบจะอัปเดตข้อมูลเดิม ไม่สร้างโครงการซ้ำ</p></div><button id="repairImportBtn" class="btn btn-primary"><i data-lucide="file-up"></i>นำเข้าเพื่อซ่อมข้อมูล</button></div></section>`:""}<section class="stats-grid">
+  $("#content").innerHTML=`${unclassifiedExpenses&&hasRole("admin")?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><strong>มีรายจ่าย ${unclassifiedExpenses} รายการที่ยังไม่ระบุประเภทเงิน</strong><p class="muted" style="margin:3px 0 0">กรุณาเปิดหน้า “รายจ่าย” แล้วแก้ไขรายการเก่าเพื่อเลือกประเภทเงิน ระบบจะนำยอดไปคำนวณแยกประเภทเงินให้ถูกต้อง</p></section>`:""}${needsImportRepair&&projects.length?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><div class="toolbar" style="margin:0"><div><strong>ข้อมูลประเภทเงิน/ฝ่ายยังไม่ครบ</strong><p class="muted" style="margin:3px 0 0">โครงการถูกนำเข้าแล้ว แต่ข้อมูลแยกประเภทเงินหรือฝ่ายยังไม่ได้ผูกกับโครงการเดิม กรุณานำเข้าไฟล์ Excel ต้นแบบเดิมอีกครั้ง ระบบจะอัปเดตข้อมูลเดิม ไม่สร้างโครงการซ้ำ</p></div><button id="repairImportBtn" class="btn btn-primary"><i data-lucide="file-up"></i>นำเข้าเพื่อซ่อมข้อมูล</button></div></section>`:""}<section class="stats-grid">
     ${[
       ["wallet-cards","งบประมาณทั้งหมด",money(budget)],
       ["badge-dollar-sign","จ่ายจริงแล้ว",money(spent)],
@@ -97,7 +105,7 @@ function dashboard(){
 
   <section class="grid-2">
     <article class="panel">
-      <div class="panel-head"><div><h3>แยกตามประเภทเงิน</h3><p class="muted">ยอดจ่ายแล้วส่วนนี้อ้างอิงรายการขอเบิกที่การเงินลงจ่ายแล้ว</p></div></div>
+      <div class="panel-head"><div><h3>แยกตามประเภทเงิน</h3><p class="muted">ยอดจ่ายแล้วอ้างอิงรายการรายจ่ายจริงทั้งจากคำขอเบิกและรายการที่บันทึกโดยตรง</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>ประเภทเงิน</th><th class="num">งบ</th><th class="num">จ่ายแล้ว</th><th class="num">รอเบิก</th><th class="num">พร้อมใช้</th></tr></thead><tbody>
         ${fundRows.map(x=>`<tr><td><strong>${esc(x.label)}</strong></td><td class="num">${money(x.budget)}</td><td class="num">${money(x.paid)}</td><td class="num">${money(x.reserved)}</td><td class="num ${x.available<0?"negative":""}"><strong>${money(x.available)}</strong></td></tr>`).join("")}
       </tbody></table></div>
@@ -257,8 +265,39 @@ function expenses(){
   const paint=()=>{const q=$("#search").value.toLowerCase(),rs=[...es].sort((a,b)=>String(b.date).localeCompare(String(a.date))).filter(e=>`${e.docNo} ${e.description} ${e.payee} ${e.category}`.toLowerCase().includes(q));$("#rows").innerHTML=rs.length?rs.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.docNo)}</td><td>${esc(pm[e.projectId]?.code||"-")}<br><small>${esc(am[e.activityId]?.name||"-")}</small></td><td>${esc(e.description)}</td><td><span class="badge gray">${esc(e.category||"-")}</span></td><td>${esc(e.payee||"-")}</td><td class="num"><strong>${money(e.amount)}</strong></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-e="${e.id}"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${e.id}"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):`<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>`;$$("[data-e]").forEach(b=>b.onclick=()=>expenseForm(state.data.expenses.find(x=>x.id===b.dataset.e)));$$("[data-d]").forEach(b=>b.onclick=()=>remove("expenses",b.dataset.d));lucide.createIcons()};$("#search").oninput=paint;paint()
 }
 async function expenseForm(e=null){
-  const ps=state.data.projects;if(!ps.length)return Swal.fire({icon:"info",title:"กรุณาเพิ่มโครงการก่อน"});const opts=ps.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const r=await Swal.fire({title:e?"แก้ไขรายจ่าย":"บันทึกรายจ่าย",width:700,html:`<div class="form-stack" style="text-align:left"><label>โครงการ<select id="prj">${opts}</select></label><label>กิจกรรม<select id="act"></select></label><label>วันที่<input id="date" type="date" value="${esc(e?.date||today())}"></label><label>เลขที่เอกสาร<input id="doc" value="${esc(e?.docNo||"")}" placeholder="เว้นว่างเพื่อรัน บจ. อัตโนมัติ"><small class="muted">รายการใหม่หากเว้นว่าง ระบบจะรันเลข บจ. ต่อจากรายการรายจ่ายล่าสุด</small></label><label>รายการ<input id="desc" value="${esc(e?.description||"")}"></label><label>หมวด<select id="cat"><option>ค่าตอบแทน</option><option>ค่าใช้สอย</option><option>ค่าวัสดุ</option><option>ค่าครุภัณฑ์</option><option>อื่น ๆ</option></select></label><label>จำนวนเงิน<input id="amount" type="number" min=".01" step=".01" value="${esc(e?.amount||"")}"></label><label>ผู้รับเงิน/ร้านค้า<input id="payee" value="${esc(e?.payee||"")}"></label><label>หมายเหตุ<textarea id="note">${esc(e?.note||"")}</textarea></label></div>`,showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",didOpen:()=>{const p=$("#prj"),a=$("#act"),fill=()=>{const xs=state.data.activities.filter(x=>x.projectId===p.value);a.innerHTML=`<option value="">ไม่ระบุกิจกรรม</option>`+xs.map(x=>`<option value="${x.id}">${esc(x.code)} - ${esc(x.name)}</option>`).join("");if(e?.activityId&&xs.some(x=>x.id===e.activityId))a.value=e.activityId};p.value=e?.projectId||ps[0].id;fill();p.onchange=fill;$("#cat").value=e?.category||"ค่าวัสดุ"},preConfirm:()=>{const v={id:e?.id||uid("exp"),projectId:$("#prj").value,activityId:$("#act").value,date:$("#date").value,docNo:$("#doc").value.trim(),description:$("#desc").value.trim(),category:$("#cat").value,amount:num($("#amount").value),payee:$("#payee").value.trim(),note:$("#note").value.trim()};if(!v.date||!v.description||v.amount<=0)return Swal.showValidationMessage("กรุณากรอกวันที่ รายการ และจำนวนเงิน");return v}});
+  const ps=state.data.projects;if(!ps.length)return Swal.fire({icon:"info",title:"กรุณาเพิ่มโครงการก่อน"});
+  const opts=ps.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
+  const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่น ๆ"};
+  const linked=!!e?.requestId||/REQ-\d{4}-\d{4}/.test(String(e?.note||"")+" "+String(e?.description||""));
+  const r=await Swal.fire({
+    title:e?"แก้ไขรายจ่าย":"บันทึกรายจ่าย",width:700,
+    html:`<div class="form-stack" style="text-align:left">${linked?'<div class="badge request-info" style="padding:8px 10px">รายการนี้เชื่อมกับคำขอเบิก หากต้องการเปลี่ยนโครงการ กิจกรรม หรือประเภทเงิน ให้แก้จากหน้าคำขอเบิก</div>':""}<label>โครงการ<select id="prj">${opts}</select></label><label>กิจกรรม<select id="act"></select></label><label>ประเภทเงิน<select id="expenseFund"></select><small id="expenseFundInfo" class="muted"></small></label><label>วันที่<input id="date" type="date" value="${esc(e?.date||today())}"></label><label>เลขที่เอกสาร<input id="doc" value="${esc(e?.docNo||"")}" placeholder="เว้นว่างเพื่อรัน บจ. อัตโนมัติ"><small class="muted">รายการใหม่หากเว้นว่าง ระบบจะรันเลข บจ. ต่อจากรายการรายจ่ายล่าสุด</small></label><label>รายการ<input id="desc" value="${esc(e?.description||"")}"></label><label>หมวด<select id="cat"><option>ค่าตอบแทน</option><option>ค่าใช้สอย</option><option>ค่าวัสดุ</option><option>ค่าครุภัณฑ์</option><option>อื่น ๆ</option></select></label><label>จำนวนเงิน<input id="amount" type="number" min=".01" step=".01" value="${esc(e?.amount||"")}"></label><label>ผู้รับเงิน/ร้านค้า<input id="payee" value="${esc(e?.payee||"")}"></label><label>หมายเหตุ<textarea id="note">${esc(e?.note||"")}</textarea></label></div>`,
+    showCancelButton:true,confirmButtonText:"บันทึก",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
+    didOpen:()=>{
+      const p=$("#prj"),a=$("#act"),f=$("#expenseFund");
+      const fillFunds=()=>{
+        const fs=(state.data.activityFunds||[]).filter(x=>x.activityId===a.value&&num(x.budget)>0);
+        f.innerHTML=fs.length?fs.map(x=>`<option value="${x.fundType}">${esc(fundLabels[x.fundType]||x.fundType)} — ${money(x.budget)}</option>`).join(""):'<option value="">ไม่พบงบประเภทเงิน</option>';
+        if(e?.fundType&&fs.some(x=>x.fundType===e.fundType))f.value=e.fundType;
+        const show=()=>{const x=fs.find(z=>z.fundType===f.value);$("#expenseFundInfo").textContent=x?"วงเงินประเภทนี้ "+money(x.budget):""};f.onchange=show;show();
+      };
+      const fillActs=()=>{
+        const xs=state.data.activities.filter(x=>x.projectId===p.value);
+        a.innerHTML=xs.length?xs.map(x=>`<option value="${x.id}">${esc(x.code)} - ${esc(x.name)}</option>`).join(""):'<option value="">ยังไม่มีกิจกรรม</option>';
+        if(e?.activityId&&xs.some(x=>x.id===e.activityId))a.value=e.activityId;
+        fillFunds();
+      };
+      p.value=e?.projectId||ps[0].id;fillActs();p.onchange=fillActs;a.onchange=fillFunds;$("#cat").value=e?.category||"ค่าวัสดุ";
+      if(linked){p.disabled=true;a.disabled=true;f.disabled=true}
+    },
+    preConfirm:()=>{
+      const v={id:e?.id||uid("exp"),projectId:$("#prj").value,activityId:$("#act").value,fundType:$("#expenseFund").value,requestId:e?.requestId||"",date:$("#date").value,docNo:$("#doc").value.trim(),description:$("#desc").value.trim(),category:$("#cat").value,amount:num($("#amount").value),payee:$("#payee").value.trim(),note:$("#note").value.trim()};
+      if(!v.activityId)return Swal.showValidationMessage("กรุณาเลือกกิจกรรม");
+      if(!v.fundType)return Swal.showValidationMessage("กรุณาเลือกประเภทเงิน");
+      if(!v.date||!v.description||v.amount<=0)return Swal.showValidationMessage("กรุณากรอกวันที่ รายการ และจำนวนเงิน");
+      return v;
+    }
+  });
   if(!r.value)return;try{await api("/api/expenses",{method:e?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(x){err(x)}
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
