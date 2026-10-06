@@ -210,6 +210,35 @@ function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activity
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
 function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
 
+function dashboardRolePanel(allRequests,projects){
+  const projectMap=Object.fromEntries((projects||[]).map(p=>[p.id,p])),me=normalizePersonLite(state.user?.displayName),uid=String(state.user?.id||""),username=String(state.user?.username||"");
+  const mine=r=>{
+    if(uid&&String(r.requesterUserId||"")===uid)return true;
+    if(username&&String(r.requesterUsername||"")===username)return true;
+    if(me&&normalizePersonLite(r.requesterName)===me)return true;
+    const owner=normalizePersonLite(projectMap[r.projectId]?.owner);
+    return hasRole("teacher")&&me&&owner&&(owner.includes(me)||me.includes(owner));
+  };
+  const cards=[];
+  if(hasAnyRole(["teacher","planner"])&&!hasRole("admin")){
+    const own=(allRequests||[]).filter(mine),returned=own.filter(r=>String(r.status||"").trim()==="returned").length,pending=own.filter(r=>["submitted","procurement","finance"].includes(String(r.status||"").trim())).length;
+    cards.push({icon:"file-text",title:"คำขอของฉัน",value:pending+" รายการ",sub:returned?"ส่งกลับแก้ไข "+returned+" รายการ":"ไม่มีรายการส่งกลับ",route:"requests",tone:returned?"warning":"normal"});
+  }
+  if(hasAnyRole(["admin","procurement"])){
+    const rows=(allRequests||[]).filter(r=>["submitted","procurement"].includes(String(r.status||"").trim()));
+    cards.push({icon:"package-check",title:"งานพัสดุรอดำเนินการ",value:rows.length+" รายการ",sub:rows.filter(r=>r.status==="submitted").length+" รายการยังไม่ได้รับเรื่อง",route:"procurement",tone:rows.length?"warning":"normal"});
+  }
+  if(hasAnyRole(["admin","finance"])){
+    const rows=(allRequests||[]).filter(r=>String(r.status||"").trim()==="finance"),sum=rows.reduce((s,r)=>s+num(r.totalAmount),0);
+    cards.push({icon:"badge-dollar-sign",title:"การเงินรอจ่าย",value:rows.length+" รายการ",sub:"ยอดรอจ่าย "+money(sum),route:"financeQueue",tone:rows.length?"info":"normal"});
+  }
+  if(hasRole("admin")){
+    const pending=(allRequests||[]).filter(r=>["submitted","procurement","finance","returned"].includes(String(r.status||"").trim())).length;
+    cards.push({icon:"heart-pulse",title:"ดูแลระบบ",value:pending+" งานเปิด",sub:"ตรวจสุขภาพข้อมูลและสำรองระบบ",route:"health",tone:"normal"});
+  }
+  if(!cards.length)return"";
+  return `<section class="role-dashboard"><div class="role-dashboard-head"><div><h3>งานที่ต้องติดตาม</h3><p class="muted">สรุปตามสิทธิ์ของบัญชีที่กำลังใช้งาน</p></div></div><div class="role-dashboard-grid">${cards.map(x=>`<button class="role-task-card ${x.tone==="warning"?"is-warning":x.tone==="info"?"is-info":""}" data-role-route="${x.route}"><span class="role-task-icon"><i data-lucide="${x.icon}"></i></span><span><small>${esc(x.title)}</small><strong>${esc(x.value)}</strong><em>${esc(x.sub)}</em></span><i data-lucide="chevron-right" class="role-task-arrow"></i></button>`).join("")}</div></section>`;
+}
 function dashboard(){
   const {projects,activities,expenses}=filtered();
   const projectIds=new Set(projects.map(p=>p.id)),activityIds=new Set(activities.map(a=>a.id));
@@ -258,7 +287,7 @@ function dashboard(){
     return{division,budget:db,spent:ds,reserved:dr,available:db-ds-dr,byFund};
   }).sort((a,b)=>b.budget-a.budget);
 
-  $("#content").innerHTML=`${unclassifiedExpenses&&hasRole("admin")?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><strong>มีรายจ่าย ${unclassifiedExpenses} รายการที่ยังไม่ระบุประเภทเงิน</strong><p class="muted" style="margin:3px 0 0">กรุณาเปิดหน้า “รายจ่าย” แล้วแก้ไขรายการเก่าเพื่อเลือกประเภทเงิน ระบบจะนำยอดไปคำนวณแยกประเภทเงินให้ถูกต้อง</p></section>`:""}${needsImportRepair&&projects.length?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><div class="toolbar" style="margin:0"><div><strong>ข้อมูลประเภทเงิน/ฝ่ายยังไม่ครบ</strong><p class="muted" style="margin:3px 0 0">โครงการถูกนำเข้าแล้ว แต่ข้อมูลแยกประเภทเงินหรือฝ่ายยังไม่ได้ผูกกับโครงการเดิม กรุณานำเข้าไฟล์ Excel ต้นแบบเดิมอีกครั้ง ระบบจะอัปเดตข้อมูลเดิม ไม่สร้างโครงการซ้ำ</p></div><button id="repairImportBtn" class="btn btn-primary"><i data-lucide="file-up"></i>นำเข้าเพื่อซ่อมข้อมูล</button></div></section>`:""}<section class="stats-grid">
+  $("#content").innerHTML=`${dashboardRolePanel(state.data.requests||[],state.data.projects||[])}${unclassifiedExpenses&&hasRole("admin")?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><strong>มีรายจ่าย ${unclassifiedExpenses} รายการที่ยังไม่ระบุประเภทเงิน</strong><p class="muted" style="margin:3px 0 0">กรุณาเปิดหน้า “รายจ่าย” แล้วแก้ไขรายการเก่าเพื่อเลือกประเภทเงิน ระบบจะนำยอดไปคำนวณแยกประเภทเงินให้ถูกต้อง</p></section>`:""}${needsImportRepair&&projects.length?`<section class="panel" style="border-color:#f59e0b;background:#fffbeb"><div class="toolbar" style="margin:0"><div><strong>ข้อมูลประเภทเงิน/ฝ่ายยังไม่ครบ</strong><p class="muted" style="margin:3px 0 0">โครงการถูกนำเข้าแล้ว แต่ข้อมูลแยกประเภทเงินหรือฝ่ายยังไม่ได้ผูกกับโครงการเดิม กรุณานำเข้าไฟล์ Excel ต้นแบบเดิมอีกครั้ง ระบบจะอัปเดตข้อมูลเดิม ไม่สร้างโครงการซ้ำ</p></div><button id="repairImportBtn" class="btn btn-primary"><i data-lucide="file-up"></i>นำเข้าเพื่อซ่อมข้อมูล</button></div></section>`:""}<section class="stats-grid">
     ${[
       ["wallet-cards","งบประมาณทั้งหมด",money(budget)],
       ["badge-dollar-sign","จ่ายจริงแล้ว",money(spent)],
@@ -311,7 +340,8 @@ function dashboard(){
     ${rows.length?rows.map(p=>{const pc=p.budget?p.spent/p.budget*100:0;return`<tr><td><strong>${esc(p.code)}</strong><br>${esc(p.name)}</td><td>${esc(p.owner)}</td><td class="num">${money(p.budget)}</td><td class="num">${money(p.spent)}</td><td class="num ${p.balance<0?"negative":""}">${money(p.balance)}</td><td><div class="progress"><div class="progress-track"><div class="progress-bar" style="width:${Math.min(pc,100)}%"></div></div><span>${pc.toFixed(0)}%</span></div></td></tr>`}).join(""):`<tr><td colspan="6" class="empty">ยังไม่มีข้อมูลโครงการ</td></tr>`}
   </tbody></table></div></section>`;
 
-  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";$$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
+  $("[data-role-route]").forEach(b=>b.onclick=()=>{state.route=b.dataset.roleRoute;Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x.dataset.route===state.route));render()});
+  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
   state.charts.p=new Chart($("#projectChart"),{type:"bar",data:{labels:rows.slice(0,10).map(x=>x.code||x.name),datasets:[{label:"งบประมาณ",data:rows.slice(0,10).map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:6},{label:"รายจ่าย",data:rows.slice(0,10).map(x=>x.spent),backgroundColor:"rgba(217,119,6,.72)",borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
   state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["จ่ายจริง","รอเบิก","พร้อมใช้"],datasets:[{data:[spent,Math.max(reserved,0),Math.max(available,0)],backgroundColor:["#0f766e","#f59e0b","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
   state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
