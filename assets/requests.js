@@ -18,7 +18,7 @@ async function requests(){
   if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const adminView=hasRole("admin"),d=await api("/api/requests?scope="+(adminView?"all":"mine")),canNew=hasAnyRole(["admin","planner","teacher"]);
+    const adminView=hasRole("admin"),d=await api("/api/requests?scope="+(adminView?"all":"mine")+"&_="+Date.now()),canNew=hasAnyRole(["admin","planner","teacher"]);
     const statusOptions=Object.entries(REQUEST_STATUS);
     const allStatuses=Object.keys(REQUEST_STATUS);
     $("#content").innerHTML=`
@@ -144,7 +144,8 @@ async function newRequest(){
     if(!r.value)return;
     const x=await api("/api/requests",{method:"POST",body:JSON.stringify(r.value)});
     await Swal.fire({icon:"success",title:"ส่งคำขอเรียบร้อย",text:"เลขที่ "+x.request.requestNo});
-    requests();
+    await refreshData();
+    await requests();
   }catch(e){err(e)}
 }
 async function editRequest(id,refreshFn=requests){
