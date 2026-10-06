@@ -272,3 +272,11 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
   .sidebar-footer{margin-top:6px;padding-top:6px}
   .user-box{padding:7px 8px}
 }
+
+/* Keep sidebar menu items compact and stacked at the top */
+@media(min-width:761px){
+  .sidebar>.nav-list{
+    align-content:start;
+    grid-auto-rows:max-content;
+  }
+}
