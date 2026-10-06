@@ -201,7 +201,7 @@ function updateWorkflowBadges(){
   if(pn)pn.title=procurement?"มี "+procurement+" รายการรอดำเนินการ":"งานพัสดุ";
   if(fn)fn.title=finance?"มี "+finance+" รายการรอจ่าย":"รอจ่ายเงิน";
 }
-async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();updateWorkflowBadges();render()}catch(e){err(e)}}
+async function refreshData(){try{state.data=await api("/api/data");years();updateWorkflowBadges();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
