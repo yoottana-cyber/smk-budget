@@ -17,6 +17,8 @@ async function backupData(env){
 async function restoreData(env,user,payload){
   const backup=payload?.backup;
   if(!backup||backup.app!=="smk-budget"||Number(backup.version)!==1||!backup.sheets)throw new Error("ไฟล์สำรองไม่ถูกต้องหรือไม่รองรับ");
+  const required=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"];
+  if(required.some(sheet=>!Array.isArray(backup.sheets[sheet])))throw new Error("ไฟล์สำรองไม่ครบถ้วน กรุณาใช้ไฟล์ที่สร้างจากเมนู Backup ของระบบ");
   if(payload.confirm!=="RESTORE")throw new Error("ยังไม่ได้ยืนยันการกู้คืนข้อมูล");
   const counts={};
   for(const sheet of BACKUP_SHEETS){
