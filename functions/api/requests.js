@@ -2,7 +2,21 @@
 import {ensureExtra,listMany,listRows,append,appendStrict,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,normPerson,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
-const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
+const isRequester=(u,r)=>{
+  const me=normPerson(u?.displayName);
+  return String(r?.requesterUserId||"")===String(u?.id||"")||
+    String(r?.requesterUsername||"")===String(u?.username||"")||
+    (!!me&&normPerson(r?.requesterName)===me);
+};
+const canSee=(u,r,project)=>{
+  if(hasAnyRole(u,["admin","planner"]))return true;
+  if(isRequester(u,r))return true;
+  if(project&&hasRole(u,"teacher")&&ownsProject(u,project))return true;
+  const status=String(r?.status||"").trim();
+  if(hasRole(u,"procurement")&&["submitted","procurement","finance","paid","returned","rejected"].includes(status))return true;
+  if(hasRole(u,"finance")&&["finance","paid","returned","rejected"].includes(status))return true;
+  return false;
+};
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function loadAll(env){
   const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses","AuditLog"]);
@@ -46,7 +60,7 @@ export async function onRequestGet(ctx){
     const [requests,items,projects,activities,funds,metas,settings,expenses,auditLogs]=await loadAll(ctx.env);
     const url=new URL(ctx.request.url),scope=url.searchParams.get("scope")||"mine",id=url.searchParams.get("id")||"";
     if(scope==="detail"){
-      const r=requests.find(x=>x.id===id),project=r?projects.find(p=>p.id===r.projectId):null,teacherOwns=!!(project&&hasRole(a.u,"teacher")&&ownsProject(a.u,project));if(!r||(!canSee(a.u,r)&&!teacherOwns))return bad("ไม่พบคำขอ",404);
+      const r=requests.find(x=>x.id===id),project=r?projects.find(p=>p.id===r.projectId):null;if(!r||!canSee(a.u,r,project))return bad("ไม่พบคำขอ",404);
       const meta=metas.find(x=>x.projectId===r.projectId);
       const paidExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
       const enriched=enrich([r],projects,activities)[0];
@@ -151,7 +165,7 @@ export async function onRequestPut(ctx){
       return json({ok:true,request:edited});
     }
     if(d.action==="cancel"){
-      if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin"))||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
+      if(!(isRequester(a.u,r)||hasRole(a.u,"admin"))||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
       await update(ctx.env,"Requests",r.id,{status:"cancelled",updatedAt:now});await writeAudit(ctx.env,a.u,"STATUS","request",r.id,"ยกเลิกคำขอ "+r.requestNo,{from:r.status,to:"cancelled"});return json({ok:true});
     }
     if(d.action==="procurement_start"){
@@ -190,7 +204,7 @@ export async function onRequestPut(ctx){
     }
     if(d.action==="resubmit"){
       if(r.status!=="returned")return bad("คำขอนี้ไม่ได้อยู่ในสถานะส่งกลับแก้ไข",409);
-      if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin")))return bad("เฉพาะผู้ขอเบิกหรือผู้ดูแลระบบเท่านั้น",403);
+      if(!(isRequester(a.u,r)||hasRole(a.u,"admin")))return bad("เฉพาะผู้ขอเบิกหรือผู้ดูแลระบบเท่านั้น",403);
       const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
       if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
       if(String(p.fiscalYear||"")!==String(r.fiscalYear||""))return bad("ไม่สามารถย้ายคำขอไปต่างปีงบประมาณได้",409);
