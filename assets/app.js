@@ -66,14 +66,14 @@ async function login(e){
 }
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
 async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,activities,expenses}=filtered();
@@ -346,6 +346,44 @@ async function expenseForm(e=null){
   if(!r.value)return;try{await api("/api/expenses",{method:e?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(x){err(x)}
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
+async function auditLog(){
+  if(!canAdmin()){state.route="dashboard";return render()}
+  $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดประวัติการใช้งาน...</div></section>';
+  try{
+    const data=await api("/api/audit-log?limit=500"),logs=data.logs||[];
+    const actionLabels={CREATE:"เพิ่ม",UPDATE:"แก้ไข",DELETE:"ลบ",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",IMPORT:"นำเข้า"};
+    const entityLabels={request:"คำขอเบิก",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย",user:"ผู้ใช้งาน",settings:"ตั้งค่าระบบ"};
+    const actionOptions=[...new Set(logs.map(x=>x.action).filter(Boolean))];
+    $("#content").innerHTML=`<section class="panel">
+      <div class="toolbar" style="align-items:flex-end">
+        <div style="flex:1;min-width:220px"><label>ค้นหา<input id="auditSearch" class="search" placeholder="ผู้ใช้งาน รายการ หรือเลขเอกสาร"></label></div>
+        <div><label>การกระทำ<select id="auditAction" class="control"><option value="">ทั้งหมด</option>${actionOptions.map(x=>`<option value="${esc(x)}">${esc(actionLabels[x]||x)}</option>`).join("")}</select></label></div>
+        <button id="auditRefresh" class="btn btn-ghost"><i data-lucide="refresh-cw"></i>รีเฟรช</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>วันเวลา</th><th>ผู้ดำเนินการ</th><th>การกระทำ</th><th>รายการ</th><th>รายละเอียด</th></tr></thead><tbody id="auditRows"></tbody></table></div>
+      <p class="muted" style="margin:12px 0 0">แสดงประวัติล่าสุดสูงสุด 500 รายการ</p>
+    </section>`;
+    const dt=v=>{if(!v)return"-";const d=new Date(v);return Number.isNaN(d.getTime())?esc(v):d.toLocaleString("th-TH",{dateStyle:"short",timeStyle:"medium"})};
+    const paint=()=>{
+      const q=$("#auditSearch").value.toLowerCase(),act=$("#auditAction").value;
+      const rows=logs.filter(x=>(!act||x.action===act)&&`${x.username} ${x.displayName} ${x.summary} ${x.entityId} ${x.entityType}`.toLowerCase().includes(q));
+      $("#auditRows").innerHTML=rows.length?rows.map(x=>`<tr>
+        <td style="white-space:nowrap">${dt(x.createdAt)}</td>
+        <td><strong>${esc(x.displayName||x.username||"-")}</strong><br><small>${esc(x.username||"")}</small></td>
+        <td><span class="badge gray">${esc(actionLabels[x.action]||x.action||"-")}</span></td>
+        <td><strong>${esc(entityLabels[x.entityType]||x.entityType||"-")}</strong><br><small>${esc(x.entityId||"")}</small></td>
+        <td>${esc(x.summary||"-")}${x.details?` <button class="icon-btn audit-detail" data-id="${x.id}" title="ดูรายละเอียด"><i data-lucide="search"></i></button>`:""}</td>
+      </tr>`).join(""):'<tr><td colspan="5" class="empty">ไม่พบประวัติ</td></tr>';
+      $$(".audit-detail").forEach(b=>b.onclick=()=>{
+        const x=logs.find(z=>z.id===b.dataset.id);let detail=x?.details||"";
+        try{detail=JSON.stringify(JSON.parse(detail),null,2)}catch{}
+        Swal.fire({title:x?.summary||"รายละเอียด",html:`<pre style="text-align:left;white-space:pre-wrap;word-break:break-word;max-height:55vh;overflow:auto;background:#f8fafc;padding:14px;border-radius:12px">${esc(detail||"-")}</pre>`,width:760,confirmButtonColor:"#0f766e"});
+      });
+      lucide.createIcons();
+    };
+    $("#auditSearch").oninput=paint;$("#auditAction").onchange=paint;$("#auditRefresh").onclick=()=>auditLog();paint();lucide.createIcons();
+  }catch(e){err(e)}
+}
 async function systemSettings(){
   if(!canAdmin()){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดการตั้งค่าระบบ...</div></section>';
