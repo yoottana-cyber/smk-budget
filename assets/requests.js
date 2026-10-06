@@ -169,7 +169,7 @@ async function editRequest(id,refreshFn=requests){
     const x=await Swal.fire({
       title:(resubmitMode?"แก้ไขและส่งคำขอใหม่ ":"แก้ไขรายการขอเบิก ")+esc(rq.requestNo),width:860,
       html:`<div class="form-stack request-form" style="text-align:left">
-        ${rq.status==="paid"?'<div class="badge request-warning" style="padding:8px 10px">รายการนี้จ่ายเงินแล้ว การแก้โครงการ/กิจกรรม/ประเภทเงินจะซิงก์ไปยังรายจ่ายที่เชื่อมกัน</div>':rq.status==="cancelled"?'<div class="badge gray" style="padding:8px 10px">รายการนี้ถูกยกเลิก การแก้ไขจะเปลี่ยนเฉพาะข้อมูลประวัติและไม่กระทบยอดงบ</div>':""}
+        ${resubmitMode?'<div class="badge request-warning" style="padding:8px 10px">รายการนี้ถูกส่งกลับ กรุณาแก้ไขข้อมูลแล้วส่งใหม่ ระบบจะตรวจงบคงเหลืออีกครั้ง</div>':rq.status==="paid"?'<div class="badge request-warning" style="padding:8px 10px">รายการนี้จ่ายเงินแล้ว การแก้โครงการ/กิจกรรม/ประเภทเงินจะซิงก์ไปยังรายจ่ายที่เชื่อมกัน</div>':rq.status==="cancelled"?'<div class="badge gray" style="padding:8px 10px">รายการนี้ถูกยกเลิก การแก้ไขจะเปลี่ยนเฉพาะข้อมูลประวัติและไม่กระทบยอดงบ</div>':rq.status==="rejected"?'<div class="badge gray" style="padding:8px 10px">รายการนี้ไม่อนุมัติและเก็บไว้เป็นประวัติ</div>':""}
         <label>ผู้ขอเบิก<input value="${esc(rq.requesterName||"-")}" disabled></label>
         <label>โครงการ<select id="rqProject">${pOpts}</select></label>
         <label>กิจกรรม<select id="rqActivity"></select></label>
