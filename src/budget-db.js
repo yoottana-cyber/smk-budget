@@ -60,6 +60,12 @@ export async function bulkAppend(env,sheet,objects){
   const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);if(!objects?.length)return null;
   return gf(env,"/values/"+encodeURIComponent(sheet+"!A:"+col(h.length))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:objects.map(obj=>h.map(k=>obj[k]??""))})});
 }
+export async function appendStrict(env,sheet,obj){
+  const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);
+  const rows=await values(env,sheet+"!A:"+col(h.length)),row=Math.max(rows.length+1,2),vals=h.map(k=>obj[k]??"");
+  await put(env,sheet+"!A"+row+":"+col(h.length)+row,[vals]);
+  return{updates:{updatedRange:sheet+"!A"+row+":"+col(h.length)+row,updatedRows:1}};
+}
 export async function list(env,sheet){return (await listRows(env,sheet)).map(x=>{const y={...x};delete y.__row;return y})}
 export async function listMany(env,sheets){
   const ranges=sheets.map(sheet=>{const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);return sheet+"!A:"+col(h.length)});
@@ -117,6 +123,17 @@ export async function ensureExtra(env){
       {key:"schoolLogo",value:"",updatedAt:now}
     ]);
   }
+  const requestWidth=SCHEMA.Requests.length,wideWidth=44,wide=await values(env,"Requests!A:AR"),repairData=[];
+  for(let i=1;i<wide.length;i++){
+    const row=wide[i]||[];if(String(row[0]||"").startsWith("req_"))continue;
+    const start=row.findIndex((v,j)=>j>0&&String(v||"").startsWith("req_"));
+    if(start>0){
+      const req=row.slice(start,start+requestWidth),fixed=Array(wideWidth).fill("");
+      for(let j=0;j<requestWidth;j++)fixed[j]=req[j]??"";
+      repairData.push({range:"Requests!A"+(i+1)+":AR"+(i+1),values:[fixed]});
+    }
+  }
+  if(repairData.length)await gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:repairData})});
   ensureExtraReadyUntil=Date.now()+300000;
 }
 async function verify(t,secret){
