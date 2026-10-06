@@ -232,7 +232,7 @@ async function procurementQueue(){
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอด</th><th>สถานะ</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td>${requestStatusBadge(r.status)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="btn btn-ghost" data-start="${r.id}">รับดำเนินการ</button>`:""}<button class="btn btn-primary" data-send="${r.id}">ส่งการเงิน</button></div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่มีรายการรอพัสดุ</td></tr>'}
       </tbody></table></div></section>`;
-    $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
     $$("[data-send]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.send,"send_finance"));
     lucide.createIcons();
@@ -254,7 +254,7 @@ async function financeQueue(){
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button><button class="btn btn-primary" data-pay="${r.id}" data-total="${r.totalAmount}">ลงจ่ายเงิน</button></div></td></tr>`).join(""):'<tr><td colspan="6" class="empty">ไม่มีรายการรอการเงิน</td></tr>'}
       </tbody></table></div></section>`;
-    $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
     lucide.createIcons();
   }catch(e){err(e)}
