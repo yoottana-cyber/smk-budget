@@ -3,8 +3,16 @@ import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,a
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function loadAll(env){
   const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses","AuditLog"]);
+  if(!g.Requests.length){
+    for(const ms of [250,700,1200]){
+      await wait(ms);
+      const retry=await listMany(env,["Requests"]);
+      if(retry.Requests.length){g.Requests=retry.Requests;break}
+    }
+  }
   return[g.Requests,g.RequestItems,g.Projects,g.Activities,g.ActivityFunds,g.ProjectMeta,g.Settings,g.Expenses,g.AuditLog];
 }
 function enrich(rs,projects,activities){
@@ -80,8 +88,8 @@ export async function onRequestPost(ctx){
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
     const fy=String(p.fiscalYear||""),maxReq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0),requestNo=await nextDocumentNumber(ctx.env,"request",fy,maxReq),now=new Date().toISOString();
     const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now,requesterUsername:a.u.username};
-    await append(ctx.env,"Requests",r);
-    const verifyRows=await listMany(ctx.env,["Requests"]);if(!verifyRows.Requests.some(x=>x.id===r.id))throw new Error("บันทึกคำขอแล้วแต่ตรวจสอบไม่พบข้อมูลในชีต Requests กรุณาลองอีกครั้ง");
+    const appendResult=await append(ctx.env,"Requests",r);
+    if(Number(appendResult?.updates?.updatedRows||0)<1)throw new Error("ไม่สามารถบันทึกคำขอลงชีต Requests ได้");
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
     await writeAudit(ctx.env,a.u,"CREATE","request",r.id,"สร้างคำขอเบิก "+r.requestNo,{requestNo:r.requestNo,totalAmount:r.totalAmount,fundType:r.fundType,projectId:r.projectId,activityId:r.activityId});
     return json({ok:true,request:r},201);
