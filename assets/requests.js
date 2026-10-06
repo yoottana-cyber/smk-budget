@@ -40,14 +40,15 @@ async function requests(){
     all.checked=allStatuses.every(s=>requestVisibleStatuses.has(s));
 
     const paintRows=()=>{
-      const rows=d.requests.filter(r=>requestVisibleStatuses.has(r.status));
+      const showAll=allStatuses.every(s=>requestVisibleStatuses.has(s));
+      const rows=d.requests.filter(r=>showAll||requestVisibleStatuses.has(String(r.status||"").trim()));
       $("#requestRows").innerHTML=rows.length?rows.map(r=>`<tr>
         <td><strong>${esc(r.requestNo)}</strong><br><small>${esc((r.createdAt||"").slice(0,10))}</small></td>
         <td><strong>${esc(r.projectCode)} ${esc(r.projectName)}</strong><br><small>${esc(r.activityName)}</small></td>
         <td>${esc(r.startDate)}<br>ถึง ${esc(r.endDate)}</td>
         <td>${esc(r.fundLabel||r.fundType)}</td>
         <td class="num"><strong>${money(r.totalAmount)}</strong></td>
-        <td>${requestStatusBadge(r.status)}</td>
+        <td>${requestStatusBadge(String(r.status||"").trim())}</td>
         <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&r.requesterUserId===state.user.id?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
       $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
