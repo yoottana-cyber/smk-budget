@@ -22,9 +22,9 @@
 <body>
   <section id="loginView" class="login-shell">
     <div class="login-card">
-      <div class="brand-mark"><i data-lucide="landmark"></i></div>
-      <p class="eyebrow">โรงเรียนสามัคคีศึกษา</p>
-      <h1>ระบบบริหารจัดการงบประมาณ</h1>
+      <div id="loginBrandMark" class="brand-mark"><i data-lucide="landmark"></i></div>
+      <p id="loginSchoolName" class="eyebrow">โรงเรียนสามัคคีศึกษา</p>
+      <h1 id="loginSystemTitle">ระบบบริหารจัดการงบประมาณ</h1>
       <p class="muted">งานแผน • โครงการ • กิจกรรม • รายจ่าย • เงินคงเหลือ</p>
       <form id="loginForm" class="form-stack">
         <label>ชื่อผู้ใช้<input id="username" autocomplete="username" required></label>
@@ -37,8 +37,8 @@
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark small"><i data-lucide="landmark"></i></div>
-        <div><strong>งานแผน</strong><span>โรงเรียนสามัคคีศึกษา</span></div>
+        <div id="appBrandMark" class="brand-mark small"><i data-lucide="landmark"></i></div>
+        <div><strong>งานแผน</strong><span id="sidebarSchoolName">โรงเรียนสามัคคีศึกษา</span></div>
       </div>
       <nav id="mainNav" class="nav-list">
         <button data-route="dashboard" class="nav-item active"><i data-lucide="layout-dashboard"></i>ภาพรวม</button>
@@ -50,6 +50,7 @@
         <button data-route="financeQueue" id="financeNav" class="nav-item hidden"><i data-lucide="badge-dollar-sign"></i>รอจ่ายเงิน</button>
         <button data-route="expenses" class="nav-item"><i data-lucide="receipt-text"></i>รายจ่าย</button>
         <button data-route="users" id="usersNav" class="nav-item hidden"><i data-lucide="users"></i>ผู้ใช้งาน</button>
+        <button data-route="settings" id="settingsNav" class="nav-item hidden"><i data-lucide="settings"></i>ตั้งค่าระบบ</button>
       </nav>
       <div class="sidebar-footer">
         <div id="userBox" class="user-box"></div>
