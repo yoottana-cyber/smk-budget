@@ -1,6 +1,6 @@
 import {ensureExtra,listMany,bulkAppend,replaceSheetData,auth,json,bad,readBody,writeAudit} from "../../src/budget-db.js";
 
-const BACKUP_SHEETS=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","DocumentCounters"];
+const BACKUP_SHEETS=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","DocumentCounters","Notifications"];
 const clean=s=>String(s??"").trim();
 const keyOf=(fy,division,code)=>[fy,division,code].map(clean).join("|").toLowerCase();
 
