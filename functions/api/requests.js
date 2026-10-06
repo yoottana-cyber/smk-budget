@@ -70,7 +70,7 @@ export async function onRequestPost(ctx){
     const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,fund);
     if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
-    const fy=String(p.fiscalYear||""),seq=requests.filter(x=>x.fiscalYear===fy).length+1,now=new Date().toISOString();
+    const fy=String(p.fiscalYear||""),seq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\\d+)$/)?.[1]||0);return Math.max(m,n)},0)+1,now=new Date().toISOString();
     const r={id:"req_"+crypto.randomUUID(),requestNo:"REQ-"+fy+"-"+String(seq).padStart(4,"0"),fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
     await append(ctx.env,"Requests",r);
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
@@ -138,4 +138,29 @@ export async function onRequestPut(ctx){
     }
     return bad("ไม่รู้จักคำสั่ง");
   }catch(e){return bad(e.message||"อัปเดตคำขอไม่สำเร็จ",500)}
+}
+
+export async function onRequestDelete(ctx){
+  try{
+    await ensureExtra(ctx.env);
+    const a=await auth(ctx,["admin"]);if(a.error)return bad("เฉพาะผู้ดูแลระบบ",a.error==="FORBIDDEN"?403:401);
+    const id=new URL(ctx.request.url).searchParams.get("id");if(!id)return bad("ไม่พบรหัสคำขอ");
+    const [requestRows,itemRows,expenseRows]=await Promise.all([
+      listRows(ctx.env,"Requests"),
+      listRows(ctx.env,"RequestItems"),
+      listRows(ctx.env,"Expenses")
+    ]);
+    const r=requestRows.find(x=>x.id===id);if(!r)return bad("ไม่พบคำขอ",404);
+    const reqNo=String(r.requestNo||"");
+    const linkedItems=itemRows.filter(x=>x.requestId===id);
+    const linkedExpenses=expenseRows.filter(x=>
+      String(x.note||"").includes("คำขอ "+reqNo)||
+      String(x.description||"").includes(reqNo)
+    );
+    const blank=row=>Object.fromEntries(Object.keys(row).filter(k=>k!=="__row").map(k=>[k,""]));
+    if(linkedItems.length)await batchUpdateRows(ctx.env,"RequestItems",linkedItems.map(x=>({__row:x.__row,...blank(x)})));
+    if(linkedExpenses.length)await batchUpdateRows(ctx.env,"Expenses",linkedExpenses.map(x=>({__row:x.__row,...blank(x)})));
+    await batchUpdateRows(ctx.env,"Requests",[{__row:r.__row,...blank(r)}]);
+    return json({ok:true,deleted:{request:1,items:linkedItems.length,expenses:linkedExpenses.length}});
+  }catch(e){return bad(e.message||"ลบคำขอไม่สำเร็จ",500)}
 }
