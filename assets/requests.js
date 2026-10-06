@@ -73,11 +73,12 @@ async function requests(){
         <td>${esc(r.fundLabel||r.fundType)}</td>
         <td class="num"><strong>${money(r.totalAmount)}</strong></td>
         <td>${requestStatusBadge(String(r.status||"").trim())}</td>
-        <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&requestOwnedByCurrentUser(r)?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(adminView||requestOwnedByCurrentUser(r))?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
+        <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${String(r.status||"").trim()==="paid"?`<button class="icon-btn" data-payment-print="${r.id}" title="พิมพ์ใบสรุปการจ่าย"><i data-lucide="receipt"></i></button>`:""}${adminView||r.status==="returned"&&requestOwnedByCurrentUser(r)?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(adminView||requestOwnedByCurrentUser(r))?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
       $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
-      $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-      $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
+      $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+      $("[data-payment-print]").forEach(b=>b.onclick=()=>printPaymentReceipt(b.dataset.paymentPrint));
+      $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
       $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
       $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),requests));
       lucide.createIcons();
@@ -405,6 +406,35 @@ function thaiDateText(s){
 }
 function firstProjectOwnerName(value){
   return String(value||"").split(/\r?\n|,|;|\/|\s+และ\s+/).map(x=>x.trim()).filter(Boolean)[0]||"";
+}
+async function printPaymentReceipt(id){
+  let w=null;
+  try{
+    const d=await api("/api/requests?scope=detail&id="+encodeURIComponent(id)),r=d.request,s=d.settings||{};
+    if(String(r.status||"").trim()!=="paid")return Swal.fire({icon:"info",title:"รายการนี้ยังไม่ได้จ่ายเงิน"});
+    w=window.open("","_blank");
+    if(!w)return Swal.fire({icon:"warning",title:"เบราว์เซอร์บล็อกหน้าต่างพิมพ์",text:"กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้"});
+    const paid=num(r.paidAmount||r.totalAmount),items=(d.items||[]).map((x,i)=>`<tr><td class="c">${i+1}</td><td>${esc(x.description)}</td><td class="money">${num(x.amount).toLocaleString("th-TH",{minimumFractionDigits:2})}</td></tr>`).join("");
+    const html=`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบสรุปการจ่าย ${esc(r.paymentDocNo||r.requestNo)}</title><style>
+      @page{size:A4;margin:16mm 18mm}*{box-sizing:border-box}body{font-family:"Sarabun","TH Sarabun New",sans-serif;color:#111;font-size:14pt;line-height:1.45;margin:0}.doc{max-width:800px;margin:auto}.tools{position:fixed;right:18px;top:14px}.tools button{padding:9px 16px}.school{text-align:center}.school h1{font-size:20pt;margin:0}.school h2{font-size:17pt;margin:4px 0 2px}.meta{margin:18px 0 10px}.row{display:grid;grid-template-columns:150px 1fr;gap:10px;margin:5px 0}.label{font-weight:700}.box{border:1px solid #777;border-radius:4px;padding:8px 10px}.items{width:100%;border-collapse:collapse;margin:12px 0}.items th,.items td{border:1px solid #666;padding:5px 7px}.items th{background:#f4f4f4}.money{text-align:right}.c{text-align:center}.total{text-align:right;font-size:16pt;font-weight:700;margin-top:8px}.words{text-align:center;margin:8px 0 28px}.signs{display:grid;grid-template-columns:1fr 1fr;gap:36px;text-align:center;margin-top:42px}.note{font-size:11pt;color:#555;margin-top:34px}@media print{.tools{display:none}.doc{max-width:none}}</style></head><body><div class="tools"><button onclick="window.print()">พิมพ์ / บันทึก PDF</button></div><div class="doc">
+      <div class="school"><h1>${esc(s.schoolName||"โรงเรียนสามัคคีศึกษา")}</h1><h2>ใบสรุปการจ่ายเงินโครงการ / กิจกรรม</h2><div>${esc(s.schoolLocation||"")}</div></div>
+      <div class="meta box">
+        <div class="row"><div class="label">เลขที่เอกสารจ่าย</div><div>${esc(r.paymentDocNo||"-")}</div></div>
+        <div class="row"><div class="label">วันที่จ่าย</div><div>${thaiDateText(r.paymentDate)}</div></div>
+        <div class="row"><div class="label">อ้างอิงคำขอ</div><div>${esc(r.requestNo||"-")}</div></div>
+        <div class="row"><div class="label">ผู้รับเงิน / ผู้ขอเบิก</div><div>${esc(r.requesterName||"-")}</div></div>
+        <div class="row"><div class="label">โครงการ</div><div>${esc(r.projectName||"-")}</div></div>
+        <div class="row"><div class="label">กิจกรรม</div><div>${esc(r.activityName||"-")}</div></div>
+        <div class="row"><div class="label">ประเภทเงิน</div><div>${esc(r.fundLabel||r.fundType||"-")}</div></div>
+      </div>
+      <table class="items"><thead><tr><th style="width:50px">ที่</th><th>รายการ</th><th style="width:150px">จำนวนเงิน (บาท)</th></tr></thead><tbody>${items||'<tr><td colspan="3" class="c">ไม่มีรายละเอียดรายการ</td></tr>'}</tbody></table>
+      <div class="total">ยอดจ่ายจริง ${paid.toLocaleString("th-TH",{minimumFractionDigits:2})} บาท</div>
+      <div class="words">(${bahtText(paid)})</div>
+      <div class="signs"><div>ลงชื่อ ........................................................<br>(${esc(s.financeOfficer||r.financeBy||"")})<br>เจ้าหน้าที่การเงิน</div><div>ลงชื่อ ........................................................<br>(${esc(r.requesterName||"")})<br>ผู้รับเงิน / ผู้ขอเบิก</div></div>
+      <div class="note">หมายเหตุ: เอกสารนี้สร้างจากข้อมูลในระบบบริหารจัดการงบประมาณ และอ้างอิงเลขที่คำขอ ${esc(r.requestNo||"-")}</div>
+    </div></body></html>`;
+    w.document.open();w.document.write(html);w.document.close();
+  }catch(e){if(w)w.close();err(e)}
 }
 async function printRequest(id){
   let w=null;
