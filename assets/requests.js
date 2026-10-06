@@ -46,7 +46,7 @@ async function requests(){
         <td>${esc(r.fundLabel||r.fundType)}</td>
         <td class="num"><strong>${money(r.totalAmount)}</strong></td>
         <td>${requestStatusBadge(r.status)}</td>
-        <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView&&!["paid","cancelled"].includes(r.status)?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการขอเบิก"><i data-lucide="pencil"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
+        <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการขอเบิก"><i data-lucide="pencil"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
       $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
       $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
@@ -144,7 +144,7 @@ async function newRequest(){
     requests();
   }catch(e){err(e)}
 }
-async function editRequest(id){
+async function editRequest(id,refreshFn=requests){
   try{
     if(!hasRole("admin"))return;
     const [detail,ctx]=await Promise.all([
@@ -152,7 +152,6 @@ async function editRequest(id){
       api("/api/request-context")
     ]);
     const rq=detail.request;
-    if(["paid","cancelled"].includes(rq.status))return Swal.fire({icon:"info",title:"รายการนี้แก้ไขไม่ได้",text:"รายการที่จ่ายเงินแล้วหรือยกเลิกแล้วถูกล็อกเพื่อรักษาความถูกต้องของข้อมูล"});
     const eligibleProjects=ctx.projects.filter(p=>String(p.fiscalYear||"")===String(rq.fiscalYear||""));
     const divisionOrder=["วิชาการ","งบประมาณ","บุคคล","กิจการนักเรียน","บริหารทั่วไป"];
     const divisions=[...new Set(eligibleProjects.map(p=>p.division||"ไม่ระบุฝ่าย"))].sort((a,b)=>{
@@ -167,6 +166,7 @@ async function editRequest(id){
     const x=await Swal.fire({
       title:"แก้ไขรายการขอเบิก "+esc(rq.requestNo),width:860,
       html:`<div class="form-stack request-form" style="text-align:left">
+        ${rq.status==="paid"?'<div class="badge request-warning" style="padding:8px 10px">รายการนี้จ่ายเงินแล้ว การแก้โครงการ/กิจกรรม/ประเภทเงินจะซิงก์ไปยังรายจ่ายที่เชื่อมกัน</div>':rq.status==="cancelled"?'<div class="badge gray" style="padding:8px 10px">รายการนี้ถูกยกเลิก การแก้ไขจะเปลี่ยนเฉพาะข้อมูลประวัติและไม่กระทบยอดงบ</div>':""}
         <label>ผู้ขอเบิก<input value="${esc(rq.requesterName||"-")}" disabled></label>
         <label>โครงการ<select id="rqProject">${pOpts}</select></label>
         <label>กิจกรรม<select id="rqActivity"></select></label>
@@ -185,7 +185,7 @@ async function editRequest(id){
           const fs=ctx.funds.filter(z=>z.activityId===a.value&&num(z.budget)>0);
           f.innerHTML=fs.length?fs.map(z=>`<option value="${z.fundType}">${esc(({subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"})[z.fundType]||z.fundType)}</option>`).join(""):'<option value="">ไม่พบงบของกิจกรรมนี้</option>';
           if(preferred&&fs.some(z=>z.fundType===preferred))f.value=preferred;
-          const show=()=>{const z=fs.find(q=>q.fundType===f.value);const addBack=(a.value===rq.activityId&&f.value===rq.fundType)?num(rq.totalAmount):0;$("#fundInfo").textContent=z?"งบ "+money(z.budget)+" • จ่ายแล้ว "+money(z.paid)+" • รอเบิก "+money(Math.max(num(z.reserved)-addBack,0))+" • พร้อมใช้ "+money(num(z.available)+addBack):""};f.onchange=show;show();
+          const show=()=>{const z=fs.find(q=>q.fundType===f.value);const committed=rq.status==="paid"?num(rq.paidAmount||rq.totalAmount):(["submitted","procurement","finance"].includes(rq.status)?num(rq.totalAmount):0);const addBack=(a.value===rq.activityId&&f.value===rq.fundType)?committed:0;$("#fundInfo").textContent=z?"งบ "+money(z.budget)+" • จ่ายแล้ว "+money(z.paid)+" • รอเบิก "+money(Math.max(num(z.reserved)-(rq.status==="paid"?0:addBack),0))+" • พร้อมใช้ "+money(num(z.available)+addBack):""};f.onchange=show;show();
         };
         const fillActs=(preferredAct="",preferredFund="")=>{
           const xs=ctx.activities.filter(z=>z.projectId===p.value);
@@ -204,7 +204,7 @@ async function editRequest(id){
         const items=$$(".bill-row",$("#billRows")).map(row=>({description:row.querySelector(".bill-desc").value.trim(),amount:num(row.querySelector(".bill-amount").value)})).filter(z=>z.description&&z.amount>0);
         const fund=ctx.funds.find(z=>z.activityId===$("#rqActivity").value&&z.fundType===$("#rqFund").value);
         const total=items.reduce((s,z)=>s+z.amount,0);
-        const addBack=($("#rqActivity").value===rq.activityId&&$("#rqFund").value===rq.fundType)?num(rq.totalAmount):0;
+        const committed=rq.status==="paid"?num(rq.paidAmount||rq.totalAmount):(["submitted","procurement","finance"].includes(rq.status)?num(rq.totalAmount):0);const addBack=($("#rqActivity").value===rq.activityId&&$("#rqFund").value===rq.fundType)?committed:0;
         if(!$("#rqActivity").value)return Swal.showValidationMessage("กรุณาเลือกกิจกรรม");
         if(!fund)return Swal.showValidationMessage("กิจกรรมนี้ไม่มีประเภทเงินที่สามารถเบิกได้");
         if(!$("#rqStart").value||!$("#rqEnd").value||$("#rqEnd").value<$("#rqStart").value)return Swal.showValidationMessage("กรุณาตรวจช่วงวันที่ดำเนินกิจกรรม");
@@ -217,7 +217,7 @@ async function editRequest(id){
     await api("/api/requests",{method:"PUT",body:JSON.stringify(x.value)});
     await refreshData();
     await Swal.fire({icon:"success",title:"แก้ไขรายการขอเบิกแล้ว",timer:1000,showConfirmButton:false});
-    requests();
+    refreshFn();
   }catch(e){err(e)}
 }
 async function cancelRequest(id){
@@ -253,12 +253,13 @@ async function procurementQueue(){
     const d=await api("/api/requests?scope=procurement");
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอพัสดุดำเนินการ</h3><p class="muted">ตรวจคำขอ จัดทำชุดเบิกจ่าย และส่งต่อเจ้าหน้าที่การเงิน</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอด</th><th>สถานะ</th><th></th></tr></thead><tbody>
-      ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td>${requestStatusBadge(r.status)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="btn btn-ghost" data-start="${r.id}">รับดำเนินการ</button>`:""}<button class="btn btn-primary" data-send="${r.id}">ส่งการเงิน</button>${hasRole("admin")?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่มีรายการรอพัสดุ</td></tr>'}
+      ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td>${requestStatusBadge(r.status)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="btn btn-ghost" data-start="${r.id}">รับดำเนินการ</button>`:""}<button class="btn btn-primary" data-send="${r.id}">ส่งการเงิน</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่มีรายการรอพัสดุ</td></tr>'}
       </tbody></table></div></section>`;
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
     $$("[data-send]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.send,"send_finance"));
-    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
+    $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
+    $("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
@@ -276,11 +277,12 @@ async function financeQueue(){
     const d=await api("/api/requests?scope=finance");
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอจ่ายเงิน</h3><p class="muted">เมื่อบันทึกจ่ายแล้ว ระบบจะลงรายจ่ายจริงให้โครงการและกิจกรรมอัตโนมัติ</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th></th></tr></thead><tbody>
-      ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button><button class="btn btn-primary" data-pay="${r.id}" data-total="${r.totalAmount}">ลงจ่ายเงิน</button>${hasRole("admin")?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="6" class="empty">ไม่มีรายการรอการเงิน</td></tr>'}
+      ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td><div class="actions"><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button><button class="btn btn-primary" data-pay="${r.id}" data-total="${r.totalAmount}">ลงจ่ายเงิน</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="6" class="empty">ไม่มีรายการรอการเงิน</td></tr>'}
       </tbody></table></div></section>`;
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
-    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
+    $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
+    $("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
