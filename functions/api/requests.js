@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
+import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,normPerson,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
@@ -47,7 +47,7 @@ export async function onRequestGet(ctx){
       return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value])),timeline});
     }
     let rows=[];
-    if(scope==="mine")rows=requests.filter(r=>r.requesterUserId===a.u.id);
+    if(scope==="mine"){const me=normPerson(a.u.displayName);rows=requests.filter(r=>r.requesterUserId===a.u.id||(!r.requesterUserId&&me&&normPerson(r.requesterName)===me)||((r.requesterUserId!==a.u.id)&&me&&normPerson(r.requesterName)===me));}
     else if(scope==="procurement"){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       rows=requests.filter(r=>["submitted","procurement"].includes(r.status));
