@@ -1,11 +1,11 @@
 
 import {ensureExtra,listMany,listRows,append,appendStrict,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,normPerson,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
-import {sendPush} from "../../src/push.js";
+import {notifyUsers} from "../../src/push.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const requesterTarget=r=>({userIds:[r?.requesterUserId].filter(Boolean),usernames:[r?.requesterUsername].filter(Boolean)});
 function notifyLater(ctx,target,payload){
-  try{ctx.waitUntil(sendPush(ctx.env,target,payload).catch(()=>{}))}catch{}
+  try{ctx.waitUntil(notifyUsers(ctx.env,target,payload).catch(()=>{}))}catch{}
 }
 const isRequester=(u,r)=>{
   const me=normPerson(u?.displayName);
