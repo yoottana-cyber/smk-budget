@@ -156,8 +156,14 @@ async function newRequest(){
     });
     if(!r.value)return;
     const x=await api("/api/requests",{method:"POST",body:JSON.stringify(r.value)});
+    if(x.request){
+      const current=state.data.requests||[];
+      state.data.requests=[x.request,...current.filter(z=>z.id!==x.request.id)];
+    }
     await Swal.fire({icon:"success",title:"ส่งคำขอเรียบร้อย",text:"เลขที่ "+x.request.requestNo});
+    await new Promise(resolve=>setTimeout(resolve,650));
     await refreshData();
+    if(x.request&&!(state.data.requests||[]).some(z=>z.id===x.request.id))state.data.requests=[x.request,...(state.data.requests||[])];
     await requests();
   }catch(e){err(e)}
 }
