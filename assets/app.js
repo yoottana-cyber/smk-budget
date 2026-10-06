@@ -90,7 +90,7 @@ async function init(){
   lucide.createIcons();
   await loadPublicBrand();
   $("#loginForm").onsubmit=login; $("#logoutBtn").onclick=()=>logout(true); $("#refreshBtn").onclick=refreshData;
-  $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;render()};
+  $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;updateWorkflowBadges();render()};
   $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;$$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x===b));render()};
   if(state.token){try{state.user=(await api("/api/me")).user;showApp();await refreshData()}catch{showLogin()}}else showLogin();
 }
@@ -101,7 +101,42 @@ async function login(e){
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
 function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
-async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();render()}catch(e){err(e)}}
+function setNavBadge(id,count,label){
+  const el=$("#"+id);if(!el)return;
+  const n=Math.max(0,Number(count)||0);
+  el.textContent=n>99?"99+":String(n);
+  el.classList.toggle("hidden",n===0);
+  if(label)el.setAttribute("aria-label",label+" "+n+" รายการ");
+}
+function normalizePersonLite(value){
+  return String(value||"").toLowerCase().replace(/\s+/g,"").replace(/^(นาย|นางสาว|นาง|ครู|ดร\.?|ว่าที่ร้อยตรีหญิง|ว่าที่ร้อยตรี)/,"");
+}
+function updateWorkflowBadges(){
+  const rows=state.data.requests||[],projects=state.data.projects||[];
+  const projectById=Object.fromEntries(projects.map(p=>[p.id,p]));
+  const selectedYear=String(state.fiscalYear||"");
+  const inYear=r=>!selectedYear||String(r.fiscalYear||projectById[r.projectId]?.fiscalYear||"")===selectedYear;
+  const meId=String(state.user?.id||""),meUser=String(state.user?.username||""),meName=normalizePersonLite(state.user?.displayName);
+  const mine=r=>{
+    if(hasRole("admin"))return true;
+    if(String(r.requesterUserId||"")===meId)return true;
+    if(meUser&&String(r.requesterUsername||"")===meUser)return true;
+    if(meName&&normalizePersonLite(r.requesterName)===meName)return true;
+    const p=projectById[r.projectId],owner=normalizePersonLite(p?.owner);
+    return hasRole("teacher")&&meName&&owner&&(owner.includes(meName)||meName.includes(owner));
+  };
+  const returned=rows.filter(r=>inYear(r)&&String(r.status||"").trim()==="returned"&&mine(r)).length;
+  const procurement=rows.filter(r=>inYear(r)&&["submitted","procurement"].includes(String(r.status||"").trim())).length;
+  const finance=rows.filter(r=>inYear(r)&&String(r.status||"").trim()==="finance").length;
+  setNavBadge("requestsBadge",returned,"คำขอที่ถูกส่งกลับแก้ไข");
+  setNavBadge("procurementBadge",hasAnyRole(["admin","procurement"])?procurement:0,"รายการงานพัสดุที่รอดำเนินการ");
+  setNavBadge("financeBadge",hasAnyRole(["admin","finance"])?finance:0,"รายการที่รอการเงิน");
+  const rq=$("#requestsNav"),pn=$("#procurementNav"),fn=$("#financeNav");
+  if(rq)rq.title=returned?"มี "+returned+" รายการถูกส่งกลับแก้ไข":"ขอเบิกเงิน";
+  if(pn)pn.title=procurement?"มี "+procurement+" รายการรอดำเนินการ":"งานพัสดุ";
+  if(fn)fn.title=finance?"มี "+finance+" รายการรอจ่าย":"รอจ่ายเงิน";
+}
+async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();updateWorkflowBadges();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
