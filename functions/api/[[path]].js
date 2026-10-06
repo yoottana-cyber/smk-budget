@@ -7,7 +7,8 @@ const SCHEMA={
   ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
   Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
   RequestItems:["id","requestId","description","amount","createdAt"],
-  Settings:["key","value","updatedAt"]
+  Settings:["key","value","updatedAt"],
+  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"]
 };
 const enc=new TextEncoder();
 const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -43,6 +44,12 @@ async function values(env,range){return(await gf(env,`/values/${encodeURICompone
 async function batchValues(env,ranges){if(!ranges.length)return[];const q=ranges.map(x=>"ranges="+encodeURIComponent(x)).join("&"),j=await gf(env,"/values:batchGet?majorDimension=ROWS&"+q);return(j.valueRanges||[]).map(x=>x.values||[])}
 async function put(env,range,vals){return gf(env,`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{method:"PUT",body:JSON.stringify({values:vals})})}
 async function append(env,sheet,obj){const h=SCHEMA[sheet];return gf(env,`/values/${encodeURIComponent(sheet+"!A:"+col(h.length))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,{method:"POST",body:JSON.stringify({values:[h.map(k=>obj[k]??"")]})})}
+async function audit(env,u,action,entityType,entityId="",summary="",details={}){
+  try{
+    const detailText=typeof details==="string"?details:JSON.stringify(details??{});
+    await append(env,"AuditLog",{id:"log_"+crypto.randomUUID(),createdAt:new Date().toISOString(),userId:u?.id||"",username:u?.username||"",displayName:u?.displayName||"",action:String(action||""),entityType:String(entityType||""),entityId:String(entityId||""),summary:String(summary||"").slice(0,500),details:String(detailText||"").slice(0,8000)});
+  }catch{}
+}
 async function list(env,sheet){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`);return r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])))}
 async function listRows(env,sheet){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`);return r.slice(1).map((x,i)=>({x,row:i+2})).filter(z=>z.x.some(v=>String(v).trim())).map(z=>({...Object.fromEntries(h.map((k,i)=>[k,z.x[i]??""])),__row:z.row}))}
 async function batchUpdateRows(env,sheet,rows){const h=SCHEMA[sheet];if(!rows?.length)return null;const data=rows.map(({__row,...obj})=>({range:`${sheet}!A${__row}:${col(h.length)}${__row}`,values:[h.map(k=>obj[k]??"")]}));return gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data})})}
@@ -97,6 +104,7 @@ export async function onRequest(ctx){
         const us=await usersList(env);if(us.some(x=>x.username.toLowerCase()===username.toLowerCase()))return bad("ชื่อผู้ใช้นี้มีอยู่แล้ว",409);
         const row={id:`usr_${crypto.randomUUID()}`,username,passwordHash:await sha(`${env.PASSWORD_PEPPER}:${password}`),role:userRoles.join(","),displayName,status,createdAt:new Date().toISOString()};
         await append(env,"Users",row);clearUsersCache();
+        await audit(env,a.u,"CREATE","user",row.id,"เพิ่มผู้ใช้งาน "+row.username,{username:row.username,displayName:row.displayName,role:row.role,status:row.status});
         return json({ok:true,user:{...safeUser(row),status:row.status,createdAt:row.createdAt}},201);
       }
       if(method==="PUT"){
@@ -109,6 +117,7 @@ export async function onRequest(ctx){
         if(d.password!==undefined){const p=String(d.password||"");if(p.length<6)return bad("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");patch.passwordHash=await sha(`${env.PASSWORD_PEPPER}:${p}`)}
         if(!Object.keys(patch).length)return bad("ไม่มีข้อมูลที่ต้องแก้ไข");
         const row=await update(env,"Users",d.id,patch);clearUsersCache();
+        await audit(env,a.u,"UPDATE","user",row.id,"แก้ไขผู้ใช้งาน "+row.username,{displayName:row.displayName,role:row.role,status:row.status,passwordChanged:d.password!==undefined});
         return json({ok:true,user:{...safeUser(row),status:row.status,createdAt:row.createdAt}});
       }
       return bad("Method not allowed",405);
@@ -168,7 +177,7 @@ export async function onRequest(ctx){
           d.fundType=fundType;d.requestId=linked?.id||"";
         }
 
-        if(method==="POST"){const row={...d,createdAt:now,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})};await append(env,sheet,row);return json({ok:true,row},201)}
+        if(method==="POST"){const row={...d,createdAt:now,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})};await append(env,sheet,row);await audit(env,a.u,"CREATE",path,row.id,"เพิ่มข้อมูล "+path,{id:row.id,projectId:row.projectId||"",activityId:row.activityId||"",amount:row.amount||"",docNo:row.docNo||"",fundType:row.fundType||""});return json({ok:true,row},201)}
         if(!d.id)return bad("ไม่พบรหัสข้อมูล");
         const row=await update(env,sheet,d.id,{...d,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})});
         if(sheet==="Expenses"){
@@ -177,6 +186,7 @@ export async function onRequest(ctx){
           const linked=(row.requestId?reqs.find(x=>x.id===row.requestId):null)||(reqNo?reqs.find(x=>x.requestNo===reqNo):null);
           if(linked)await update(env,"Requests",linked.id,{paymentDate:row.date,paymentDocNo:String(row.docNo||"").trim(),paidAmount:amount(row.amount),updatedAt:now});
         }
+        await audit(env,a.u,"UPDATE",path,row.id,"แก้ไขข้อมูล "+path,{id:row.id,projectId:row.projectId||"",activityId:row.activityId||"",amount:row.amount||"",docNo:row.docNo||"",fundType:row.fundType||""});
         return json({ok:true,row});
       }
       if(method==="DELETE"){
@@ -203,7 +213,8 @@ export async function onRequest(ctx){
             }
           }
         }
-        await del(env,sheet,id);return json({ok:true});
+        const beforeRows=await list(env,sheet),before=beforeRows.find(x=>x.id===id)||null;
+        await del(env,sheet,id);await audit(env,a.u,"DELETE",path,id,"ลบข้อมูล "+path,before?{id:before.id,projectId:before.projectId||"",activityId:before.activityId||"",amount:before.amount||"",docNo:before.docNo||""}:{});return json({ok:true});
       }
     }
     return bad("ไม่พบ API",404);
