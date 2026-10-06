@@ -37,7 +37,7 @@ async function restoreBackupFile(file){
     if(/\.xlsx?$/i.test(file.name||"")){
       if(typeof XLSX==="undefined")throw new Error("ไลบรารี Excel ยังโหลดไม่สำเร็จ");
       const wb=XLSX.read(await file.arrayBuffer(),{type:"array"}),infoSheet=wb.Sheets["_BackupInfo"];if(!infoSheet)throw new Error("ไฟล์ Excel นี้ไม่ใช่ Backup ที่สร้างจากระบบ");const info=XLSX.utils.sheet_to_json(infoSheet,{defval:""})[0]||{};
-      const allowed=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","DocumentCounters"],sheets={};
+      const allowed=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","DocumentCounters","Notifications"],sheets={};
       for(const name of allowed){
         const ws=wb.Sheets[name];if(!ws){sheets[name]=[];continue}
         const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
