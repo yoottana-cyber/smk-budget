@@ -85,6 +85,7 @@
       </div>
       <nav id="mainNav" class="nav-list">
         <button data-route="dashboard" class="nav-item active"><i data-lucide="layout-dashboard"></i>ภาพรวม</button>
+        <button data-route="notifications" id="notificationsNav" class="nav-item"><i data-lucide="bell"></i><span class="nav-label">แจ้งเตือน</span><span id="notificationsBadge" class="nav-badge hidden">0</span></button>
         <button data-route="projects" class="nav-item"><i data-lucide="folder-kanban"></i>โครงการ</button>
         <button data-route="activities" class="nav-item"><i data-lucide="list-checks"></i>กิจกรรม</button>
         <button data-route="import" id="importNav" class="nav-item hidden"><i data-lucide="file-up"></i>นำเข้าโครงการ</button>
@@ -118,7 +119,7 @@
 
     <nav id="mobileBottomNav" class="mobile-bottom-nav" aria-label="เมนูหลักบนมือถือ">
       <button class="mobile-nav-item" data-mobile-route="dashboard"><i data-lucide="layout-dashboard"></i><span>ภาพรวม</span></button>
-      <button class="mobile-nav-item" data-mobile-route="projects"><i data-lucide="folder-kanban"></i><span>โครงการ</span></button>
+      <button id="mobileNotificationsNav" class="mobile-nav-item" data-mobile-route="notifications"><span class="mobile-nav-icon-wrap"><i data-lucide="bell"></i><span id="mobileNotificationsBadge" class="mobile-nav-badge hidden">0</span></span><span>แจ้งเตือน</span></button>
       <button id="mobilePrimaryNav" class="mobile-nav-item mobile-nav-primary" data-mobile-route="requests"><span class="mobile-primary-circle"><i data-lucide="file-text"></i><span id="mobilePrimaryBadge" class="mobile-nav-badge hidden">0</span></span><span id="mobilePrimaryLabel">ขอเบิก</span></button>
       <button class="mobile-nav-item" data-mobile-route="reports"><i data-lucide="chart-no-axes-combined"></i><span>รายงาน</span></button>
       <button id="mobileMenuBtn" class="mobile-nav-item" type="button"><i data-lucide="menu"></i><span>เมนู</span></button>
