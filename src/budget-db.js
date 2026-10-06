@@ -11,7 +11,8 @@ const SCHEMA={
   Settings:["key","value","updatedAt"],
   AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"],
   DocumentCounters:["key","value","updatedAt"],
-  DocumentLocks:["id","resource","owner","createdAt","expiresAt","releasedAt"]
+  DocumentLocks:["id","resource","owner","createdAt","expiresAt","releasedAt"],
+  PushSubscriptions:["id","userId","username","endpoint","p256dh","auth","userAgent","status","createdAt","updatedAt"]
 };
 const enc=new TextEncoder();
 export const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -115,7 +116,7 @@ let ensureExtraReadyUntil=0,shiftedRequestRepairDone=false;
 export async function ensureExtra(env){
   if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
-  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","AuditLog","DocumentCounters","DocumentLocks"],missing=extra.filter(x=>!have.has(x));
+  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","AuditLog","DocumentCounters","DocumentLocks","PushSubscriptions"],missing=extra.filter(x=>!have.has(x));
   if(missing.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
   const headerSheets=[...new Set([...missing,"Expenses","Requests"])];
   const headerGroups=await batchValues(env,headerSheets.map(s=>s+"!1:1"));
