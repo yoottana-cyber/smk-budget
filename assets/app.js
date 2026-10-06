@@ -41,6 +41,69 @@ async function installApp(){
 function registerPwa(){
   if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
 }
+function pushKeyBytes(value){
+  let s=String(value||"").replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";
+  const raw=atob(s),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out;
+}
+let pushConfigCache=null;
+async function loadPushConfig(force=false){
+  if(!force&&pushConfigCache)return pushConfigCache;
+  pushConfigCache=await api("/api/push?_="+Date.now());return pushConfigCache;
+}
+async function currentPushSubscription(){
+  if(!("serviceWorker" in navigator)||!("PushManager" in window))return null;
+  const reg=await navigator.serviceWorker.ready;return reg.pushManager.getSubscription();
+}
+async function syncPushButton(){
+  const btn=$("#pushNotificationBtn");if(!btn)return;
+  const supported="Notification" in window&&"serviceWorker" in navigator&&"PushManager" in window;
+  if(!supported){btn.disabled=true;btn.innerHTML='<i data-lucide="bell-off"></i><span>อุปกรณ์นี้ไม่รองรับการแจ้งเตือน</span>';lucide.createIcons();return}
+  try{
+    const sub=await currentPushSubscription();
+    btn.disabled=false;
+    btn.classList.toggle("btn-primary",!sub);btn.classList.toggle("btn-ghost",!!sub);
+    btn.innerHTML=sub?'<i data-lucide="bell-check"></i><span>เปิดแจ้งเตือนแล้ว • แตะเพื่อปิด</span>':'<i data-lucide="bell-ring"></i><span>เปิดการแจ้งเตือน</span>';
+  }catch{
+    btn.disabled=false;btn.innerHTML='<i data-lucide="bell-ring"></i><span>เปิดการแจ้งเตือน</span>';
+  }
+  lucide.createIcons();
+}
+async function togglePushNotifications(){
+  const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  if(isiOS&&!isStandaloneApp()){
+    return Swal.fire({icon:"info",title:"ติดตั้งแอปก่อนเปิดการแจ้งเตือน",html:'บน iPhone ให้เปิดด้วย <b>Safari</b> → แตะ <b>แชร์</b> → <b>เพิ่มไปยังหน้าจอโฮม</b> แล้วเปิดแอปจากไอคอนบนหน้าจอหลัก',confirmButtonColor:"#0f766e"});
+  }
+  if(!("Notification" in window)||!("serviceWorker" in navigator)||!("PushManager" in window))return Swal.fire({icon:"info",title:"อุปกรณ์นี้ไม่รองรับ Push Notification"});
+  try{
+    const reg=await navigator.serviceWorker.ready,current=await reg.pushManager.getSubscription();
+    if(current){
+      const q=await Swal.fire({icon:"question",title:"ปิดการแจ้งเตือนบนอุปกรณ์นี้?",showCancelButton:true,confirmButtonText:"ปิดการแจ้งเตือน",cancelButtonText:"ยกเลิก"});
+      if(!q.isConfirmed)return;
+      await api("/api/push",{method:"POST",body:JSON.stringify({action:"unsubscribe",endpoint:current.endpoint})});
+      await current.unsubscribe();await syncPushButton();
+      return Swal.fire({icon:"success",title:"ปิดการแจ้งเตือนแล้ว",timer:1000,showConfirmButton:false});
+    }
+    const cfg=await loadPushConfig(true);
+    if(!cfg.configured||!cfg.publicKey)throw new Error("ระบบ Push ยังไม่ได้ตั้งค่าที่เซิร์ฟเวอร์");
+    let permission=Notification.permission;
+    if(permission==="default")permission=await Notification.requestPermission();
+    if(permission!=="granted")throw new Error("กรุณาอนุญาตการแจ้งเตือนในการตั้งค่าของอุปกรณ์");
+    const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pushKeyBytes(cfg.publicKey)});
+    await api("/api/push",{method:"POST",body:JSON.stringify({action:"subscribe",subscription:sub.toJSON(),userAgent:navigator.userAgent})});
+    await syncPushButton();
+    const test=await api("/api/push",{method:"POST",body:JSON.stringify({action:"test"})});
+    const sent=Number(test?.result?.sent||0);
+    await Swal.fire({icon:"success",title:"เปิดการแจ้งเตือนแล้ว",text:sent?"ส่งข้อความทดสอบไปยังอุปกรณ์นี้แล้ว":"ระบบบันทึกอุปกรณ์เรียบร้อย",timer:1600,showConfirmButton:false});
+  }catch(e){err(e)}
+}
+function applyRouteFromUrl(){
+  const url=new URL(location.href),route=url.searchParams.get("route");if(!route)return;
+  const btn=$("#mainNav [data-route='"+CSS.escape(route)+"']");
+  if(btn&&!btn.classList.contains("hidden")){
+    state.route=route;Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x===btn));
+  }
+  url.searchParams.delete("route");history.replaceState(null,"",url.pathname+(url.search?"?"+url.searchParams.toString():"")+url.hash);
+}
 const MOBILE_ROUTE_META={
   dashboard:{label:"ภาพรวม",icon:"layout-dashboard"},projects:{label:"โครงการ",icon:"folder-kanban"},activities:{label:"กิจกรรม",icon:"list-checks"},
   import:{label:"นำเข้าโครงการ",icon:"file-up"},requests:{label:"ขอเบิกเงิน",short:"ขอเบิก",icon:"file-text"},procurement:{label:"งานพัสดุ",short:"พัสดุ",icon:"package-check"},
@@ -101,6 +164,7 @@ const busyTasks=new Map();let busySeq=0;
 function requestStatusLabel(path,method="GET"){
   const m=String(method||"GET").toUpperCase(),p=String(path||"");
   if(p.includes("/login"))return"กำลังเข้าสู่ระบบ...";
+  if(p.includes("/push"))return m==="GET"?"กำลังตรวจสอบการแจ้งเตือน...":"กำลังตั้งค่าการแจ้งเตือน...";
   if(p.includes("/import-projects"))return"กำลังนำเข้าข้อมูล...";
   if(p.includes("/admin-tools"))return m==="GET"?"กำลังเตรียมข้อมูลสำรอง...":"กำลังดำเนินการเครื่องมือระบบ...";
   if(p.includes("/data-health"))return m==="GET"?"กำลังตรวจสุขภาพข้อมูล...":"กำลังซ่อมข้อมูล...";
@@ -195,7 +259,7 @@ async function init(){
   const cachedBrand=readBrandCache();if(cachedBrand)applyBrand(cachedBrand);
   lucide.createIcons();registerPwa();
   if($("#rememberLogin"))$("#rememberLogin").checked=localStorage.getItem(AUTH_REMEMBER_KEY)!=="0";
-  $("#loginForm").onsubmit=login;$("#logoutBtn").onclick=()=>logout(true);$("#mobileLogoutBtn").onclick=()=>logout(true);$("#refreshBtn").onclick=refreshData;
+  $("#loginForm").onsubmit=login;$("#logoutBtn").onclick=()=>logout(true);$("#mobileLogoutBtn").onclick=()=>logout(true);$("#refreshBtn").onclick=refreshData;$("#pushNotificationBtn").onclick=togglePushNotifications;
   $("#loginInstallBtn").onclick=installApp;$("#installAppBtn").onclick=installApp;
   $("#mobileMenuBtn").onclick=openMobileMenu;$("#mobileMenuClose").onclick=closeMobileMenu;$("#mobileMenuBackdrop").onclick=closeMobileMenu;
   $("#mobileBottomNav").onclick=e=>{const b=e.target.closest("[data-mobile-route]");if(b)navigateTo(b.dataset.mobileRoute)};
@@ -209,7 +273,7 @@ async function init(){
   $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(b)navigateTo(b.dataset.route)};
   loadPublicBrand();
   if(state.token){
-    try{state.user=(await api("/api/me")).user;showApp();await refreshData()}
+    try{state.user=(await api("/api/me")).user;showApp();applyRouteFromUrl();await refreshData()}
     catch{clearAuthToken();state.token="";showLogin()}
   }else showLogin();
 }
@@ -246,7 +310,7 @@ async function login(e){
     const x=await api("/api/login",{method:"POST",body:JSON.stringify({username,password,remember})});
     state.token=x.token;state.user=x.user;saveAuthToken(x.token,remember);
     if($("#loginNoticeText"))$("#loginNoticeText").textContent="เข้าสู่ระบบสำเร็จ กำลังโหลดข้อมูล...";
-    showApp();await refreshData();
+    showApp();applyRouteFromUrl();await refreshData();
   }catch(ex){
     setLoginLoading(false);showLoginError(ex.message||"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
   }finally{
@@ -261,7 +325,7 @@ function logout(show=true){
   if(show){Swal.close();Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 }
 function showLogin(){closeMobileMenu();$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden");resetLoginUi()}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#adminToolsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));syncMobileNavigation();lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#adminToolsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));syncMobileNavigation();syncPushButton();lucide.createIcons()}
 function setNavBadge(id,count,label){
   const el=$("#"+id);if(!el)return;
   const n=Math.max(0,Number(count)||0);
