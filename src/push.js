@@ -1,4 +1,4 @@
-import {listMany,update,roleList} from "./budget-db.js";
+import {listMany,update,bulkAppend,roleList} from "./budget-db.js";
 
 const enc=new TextEncoder();
 const b64u=buf=>{
@@ -88,13 +88,34 @@ export function pushConfigured(env){
 export function pushPublicKey(env){
   try{return requireVapid(env).publicKey}catch{return""}
 }
+function resolveTargetUsers(users,target){
+  const userIds=new Set((target?.userIds||[]).map(String)),usernames=new Set((target?.usernames||[]).map(String)),roles=new Set(target?.roles||[]);
+  const matched=[];
+  for(const u of users){
+    const active=String(u.status||"")==="active";
+    if(!active)continue;
+    const byId=userIds.has(String(u.id||"")),byUsername=usernames.has(String(u.username||"")),byRole=roles.size&&roleList(u.role).some(r=>roles.has(r));
+    if(byId||byUsername||byRole)matched.push(u);
+  }
+  return[...new Map(matched.map(u=>[String(u.id||u.username),u])).values()];
+}
+export async function notifyUsers(env,target,payload){
+  const g=await listMany(env,["Users"]),users=resolveTargetUsers(g.Users||[],target),now=new Date().toISOString();
+  if(users.length){
+    await bulkAppend(env,"Notifications",users.map(u=>({
+      id:"ntf_"+crypto.randomUUID(),userId:u.id,username:u.username,title:String(payload?.title||"แจ้งเตือน"),
+      body:String(payload?.body||""),url:String(payload?.url||"/?route=dashboard"),tag:String(payload?.tag||""),
+      isRead:"0",createdAt:now,readAt:""
+    })));
+  }
+  const pushTarget={userIds:users.map(u=>u.id),usernames:users.map(u=>u.username)};
+  const push=await sendPush(env,pushTarget,payload);
+  return{notifications:users.length,...push};
+}
 export async function sendPush(env,target,payload){
   if(!pushConfigured(env))return{configured:false,sent:0,failed:0,expired:0};
-  const g=await listMany(env,["PushSubscriptions","Users"]),subs=g.PushSubscriptions||[],users=g.Users||[];
-  const userIds=new Set((target?.userIds||[]).map(String)),usernames=new Set((target?.usernames||[]).map(String)),roles=new Set(target?.roles||[]);
-  if(roles.size){
-    for(const u of users)if(roleList(u.role).some(r=>roles.has(r))&&String(u.status||"")==="active"){userIds.add(String(u.id||""));usernames.add(String(u.username||""))}
-  }
+  const g=await listMany(env,["PushSubscriptions","Users"]),subs=g.PushSubscriptions||[],users=resolveTargetUsers(g.Users||[],target);
+  const userIds=new Set(users.map(u=>String(u.id||""))),usernames=new Set(users.map(u=>String(u.username||"")));
   const selected=subs.filter(s=>String(s.status||"active")==="active"&&(userIds.has(String(s.userId||""))||usernames.has(String(s.username||""))));
   const unique=[...new Map(selected.map(s=>[s.endpoint,s])).values()];
   let sent=0,failed=0,expired=0;
