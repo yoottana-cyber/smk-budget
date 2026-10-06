@@ -2,10 +2,12 @@ const SCHEMA={
   Users:["id","username","passwordHash","role","displayName","status","createdAt"],
   Projects:["id","fiscalYear","code","name","owner","budget","status","createdAt","updatedAt"],
   Activities:["id","projectId","code","name","budget","owner","status","createdAt","updatedAt"],
-  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt"],
+  Expenses:["id","projectId","activityId","date","docNo","description","category","amount","payee","note","createdBy","createdAt","updatedAt","requestId","fundType"],
   ProjectMeta:["id","projectId","division","sourceSheet","importKey","createdAt","updatedAt"],
   ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
-  Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"]
+  Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
+  RequestItems:["id","requestId","description","amount","createdAt"],
+  Settings:["key","value","updatedAt"]
 };
 const enc=new TextEncoder();
 const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -42,13 +44,15 @@ async function batchValues(env,ranges){if(!ranges.length)return[];const q=ranges
 async function put(env,range,vals){return gf(env,`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{method:"PUT",body:JSON.stringify({values:vals})})}
 async function append(env,sheet,obj){const h=SCHEMA[sheet];return gf(env,`/values/${encodeURIComponent(sheet+"!A:"+col(h.length))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,{method:"POST",body:JSON.stringify({values:[h.map(k=>obj[k]??"")]})})}
 async function list(env,sheet){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`);return r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])))}
+async function listRows(env,sheet){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`);return r.slice(1).map((x,i)=>({x,row:i+2})).filter(z=>z.x.some(v=>String(v).trim())).map(z=>({...Object.fromEntries(h.map((k,i)=>[k,z.x[i]??""])),__row:z.row}))}
+async function batchUpdateRows(env,sheet,rows){const h=SCHEMA[sheet];if(!rows?.length)return null;const data=rows.map(({__row,...obj})=>({range:`${sheet}!A${__row}:${col(h.length)}${__row}`,values:[h.map(k=>obj[k]??"")]}));return gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data})})}
 async function listMany(env,sheets){const ranges=sheets.map(sheet=>`${sheet}!A:${col(SCHEMA[sheet].length)}`),groups=await batchValues(env,ranges),out={};sheets.forEach((sheet,idx)=>{const h=SCHEMA[sheet],r=groups[idx]||[];out[sheet]=r.slice(1).filter(x=>x.some(v=>String(v).trim())).map(x=>Object.fromEntries(h.map((k,i)=>[k,x[i]??""])))});return out}
 async function update(env,sheet,id,obj){const h=SCHEMA[sheet],r=await values(env,`${sheet}!A:${col(h.length)}`),i=r.findIndex((x,n)=>n>0&&x[0]===id);if(i<1)throw new Error("ไม่พบข้อมูล");const old=Object.fromEntries(h.map((k,j)=>[k,r[i][j]??""])),m={...old,...obj,id};await put(env,`${sheet}!A${i+1}:${col(h.length)}${i+1}`,[h.map(k=>m[k]??"")]);return m}
 async function del(env,sheet,id){const meta=await gf(env,"?fields=sheets.properties"),p=(meta.sheets||[]).find(x=>x.properties.title===sheet)?.properties,r=await values(env,`${sheet}!A:A`),i=r.findIndex((x,n)=>n>0&&x[0]===id);if(!p||i<1)throw new Error("ไม่พบข้อมูล");return gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:[{deleteDimension:{range:{sheetId:p.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1}}}]})})}
 async function ensure(env){
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title)),req=Object.keys(SCHEMA).filter(x=>!have.has(x)).map(title=>({addSheet:{properties:{title}}}));
   if(req.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:req})});
-  for(const [s,h] of Object.entries(SCHEMA)){const r=await values(env,`${s}!1:1`);if(!r.length||r[0][0]!==h[0])await put(env,`${s}!A1:${col(h.length)}1`,[h])}
+  for(const [s,h] of Object.entries(SCHEMA)){const r=await values(env,`${s}!1:1`),row=r[0]||[];if(row.length<h.length||h.some((v,i)=>String(row[i]||"")!==v))await put(env,`${s}!A1:${col(h.length)}1`,[h])}
 }
 async function hsign(data,secret){const k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return new Uint8Array(await crypto.subtle.sign("HMAC",k,enc.encode(data)))}
 async function token(user,secret){const h=b64t(JSON.stringify({alg:"HS256",typ:"JWT"})),p=b64t(JSON.stringify({...user,exp:Math.floor(Date.now()/1000)+28800})),d=`${h}.${p}`;return`${d}.${b64u(await hsign(d,secret))}`}
