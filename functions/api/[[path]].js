@@ -1,3 +1,5 @@
+import {nextDocumentNumber} from "../../src/budget-db.js";
+
 const SCHEMA={
   Users:["id","username","passwordHash","role","displayName","status","createdAt"],
   Projects:["id","fiscalYear","code","name","owner","budget","status","createdAt","updatedAt"],
@@ -158,11 +160,6 @@ export async function onRequest(ctx){
           const linked=old?linkedOf(old):null;
           if(linked&&(d.projectId!==linked.projectId||d.activityId!==linked.activityId||String(d.fundType||old.fundType||linked.fundType)!==String(linked.fundType||"")))return bad("รายจ่ายนี้เชื่อมกับคำขอเบิก กรุณาแก้โครงการ กิจกรรม หรือประเภทเงินจากหน้าคำขอเบิก",409);
           if(linked&&amount(d.amount)>amount(linked.totalAmount))return bad("ยอดจ่ายจริงต้องไม่เกินยอดขอเบิก "+amount(linked.totalAmount).toLocaleString("th-TH")+" บาท",409);
-          if(method==="POST"&&!String(d.docNo||"").trim()){
-            const sameYearIds=new Set(projects.filter(p=>String(p.fiscalYear||"")===String(prj.fiscalYear||"")).map(p=>p.id));
-            const maxDoc=exps.filter(e=>sameYearIds.has(e.projectId)).reduce((m,e)=>{const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);return x?Math.max(m,Number(x[1])||0):m},0);
-            d.docNo="บจ."+(maxDoc+1);
-          }
           if(amount(d.amount)<=0)return bad("จำนวนเงินต้องมากกว่า 0");
           if(!d.activityId)return bad("กรุณาเลือกกิจกรรม",409);
           const act=acts.find(x=>x.id===d.activityId);if(!act||act.projectId!==d.projectId)return bad("กิจกรรมไม่ตรงกับโครงการ",409);
@@ -176,6 +173,12 @@ export async function onRequest(ctx){
           const otherFundSpent=exps.filter(x=>x.activityId===d.activityId&&x.id!==d.id&&expenseFund(x)===fundType).reduce((s,x)=>s+amount(x.amount),0);
           const pending=reqs.filter(x=>x.activityId===d.activityId&&x.fundType===fundType&&["submitted","procurement","finance"].includes(x.status)).reduce((s,x)=>s+amount(x.totalAmount),0);
           if(otherFundSpent+pending+amount(d.amount)>amount(fund.budget))return bad(`รายการนี้ทำให้งบประเภทเงินติดลบ เหลือพร้อมใช้ ${Math.max(amount(fund.budget)-otherFundSpent-pending,0).toLocaleString("th-TH")} บาท`,409);
+          const fy=String(prj.fiscalYear||""),sameYearIds=new Set(projects.filter(p=>String(p.fiscalYear||"")===fy).map(p=>p.id)),docInput=String(d.docNo||"").trim(),duplicateDoc=docInput&&exps.some(e=>e.id!==d.id&&sameYearIds.has(e.projectId)&&String(e.docNo||"").trim()===docInput);
+          if(duplicateDoc)return bad("เลขที่เอกสาร "+docInput+" มีอยู่แล้วในปีงบประมาณนี้",409);
+          if(method==="POST"&&!docInput){
+            const maxDoc=exps.filter(e=>sameYearIds.has(e.projectId)).reduce((m,e)=>{const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);return x?Math.max(m,Number(x[1])||0):m},0);
+            d.docNo=await nextDocumentNumber(env,"expense",fy,maxDoc);
+          }
           d.fundType=fundType;d.requestId=linked?.id||"";
         }
 
