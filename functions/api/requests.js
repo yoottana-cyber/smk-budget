@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit} from "../../src/budget-db.js";
+import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
@@ -77,8 +77,8 @@ export async function onRequestPost(ctx){
     const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,expenses,fund);
     if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
-    const fy=String(p.fiscalYear||""),seq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0)+1,now=new Date().toISOString();
-    const r={id:"req_"+crypto.randomUUID(),requestNo:"REQ-"+fy+"-"+String(seq).padStart(4,"0"),fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
+    const fy=String(p.fiscalYear||""),maxReq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0),requestNo=await nextDocumentNumber(ctx.env,"request",fy,maxReq),now=new Date().toISOString();
+    const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
     await append(ctx.env,"Requests",r);
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
     await writeAudit(ctx.env,a.u,"CREATE","request",r.id,"สร้างคำขอเบิก "+r.requestNo,{requestNo:r.requestNo,totalAmount:r.totalAmount,fundType:r.fundType,projectId:r.projectId,activityId:r.activityId});
@@ -144,7 +144,8 @@ export async function onRequestPut(ctx){
       const fund=funds.find(x=>x.activityId===r.activityId&&x.fundType===r.fundType);if(!fund)return bad("ไม่พบข้อมูลงบกิจกรรม");
       const available=availableFor(requests,expenses,fund,r.id);if(paid>available)return bad("ยอดจ่ายทำให้งบประเภทเงินนี้ติดลบ",409);
       const p=projects.find(x=>x.id===r.projectId),act=activities.find(x=>x.id===r.activityId);
-      const paymentDocNo=String(d.paymentDocNo||"").trim()||nextExpenseDocNo(expenses,projects,p?.fiscalYear||r.fiscalYear);
+      const paymentDocNoInput=String(d.paymentDocNo||"").trim(),fy=String(p?.fiscalYear||r.fiscalYear||""),sameYearIds=new Set(projects.filter(x=>String(x.fiscalYear||"")===fy).map(x=>x.id)),maxDoc=expenses.filter(e=>sameYearIds.has(e.projectId)).reduce((m,e)=>{const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);return x?Math.max(m,Number(x[1])||0):m},0),paymentDocNo=paymentDocNoInput||await nextDocumentNumber(ctx.env,"expense",fy,maxDoc);
+      if(paymentDocNoInput&&expenses.some(e=>sameYearIds.has(e.projectId)&&String(e.docNo||"").trim()===paymentDocNoInput))return bad("เลขที่เอกสาร "+paymentDocNoInput+" มีอยู่แล้วในปีงบประมาณนี้",409);
       const paidReq=await update(ctx.env,"Requests",r.id,{status:"paid",paymentDate:d.paymentDate,paymentDocNo,paidAmount:paid,financeNote:String(d.note||"").trim(),financeBy:a.u.displayName,updatedAt:now});
       await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:paymentDocNo,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now,requestId:r.id,fundType:r.fundType});
       await writeAudit(ctx.env,a.u,"PAY","request",r.id,"จ่ายเงินคำขอ "+r.requestNo,{paymentDocNo,paymentDate:d.paymentDate,paidAmount:paid,fundType:r.fundType});
