@@ -15,11 +15,11 @@ async function requests(){
   if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const adminView=hasRole("admin"),d=await api("/api/requests?scope="+(adminView?"all":"mine")),canNew=hasAnyRole(["admin","planner","teacher"]);
+    const adminView=hasRole("admin"),[d,requestSetting]=await Promise.all([api("/api/requests?scope="+(adminView?"all":"mine")),api("/api/request-settings")]),requestOpen=requestSetting.open!==false,canNew=hasAnyRole(["admin","planner","teacher"])&&(requestOpen||adminView);
     $("#content").innerHTML=`
       <section class="panel">
-        <div class="toolbar"><div><strong>${adminView?"รายการขอเบิกทั้งหมด":"รายการขอเบิกของฉัน"}</strong><p class="muted request-sub">${adminView?"ผู้ดูแลระบบสามารถตรวจสอบและแก้ไขรายการที่ยังไม่จ่ายเงินได้":"ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้"}</p></div>
-        ${canNew?'<button id="newRequestBtn" class="btn btn-primary"><i data-lucide="plus"></i>ขอเบิกเงิน</button>':""}</div>
+        <div class="toolbar"><div><strong>${adminView?"รายการขอเบิกทั้งหมด":"รายการขอเบิกของฉัน"}</strong><p class="muted request-sub">${adminView?"ผู้ดูแลระบบสามารถตรวจสอบและแก้ไขรายการที่ยังไม่จ่ายเงินได้":"ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้"}</p><div style="margin-top:6px"><span class="badge ${requestOpen?"":"gray"}">สถานะรับคำขอ: ${requestOpen?"เปิด":"ปิด"}</span>${!requestOpen&&!adminView?'<span class="muted" style="margin-left:8px">ขณะนี้ปิดรับรายการขอเบิกใหม่</span>':""}</div></div>
+        <div class="actions">${adminView?`<button id="toggleRequestOpenBtn" class="btn btn-ghost"><i data-lucide="${requestOpen?"lock":"unlock"}"></i>${requestOpen?"ปิดรับคำขอ":"เปิดรับคำขอ"}</button>`:""}${canNew?'<button id="newRequestBtn" class="btn btn-primary"><i data-lucide="plus"></i>ขอเบิกเงิน</button>':""}</div></div>
         <div class="table-wrap"><table><thead><tr><th>เลขที่คำขอ</th><th>โครงการ / กิจกรรม</th><th>ช่วงดำเนินการ</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th>สถานะ</th><th></th></tr></thead><tbody>
         ${d.requests.length?d.requests.map(r=>`<tr>
           <td><strong>${esc(r.requestNo)}</strong><br><small>${esc((r.createdAt||"").slice(0,10))}</small></td>
@@ -32,11 +32,28 @@ async function requests(){
         </tr>`).join(""):'<tr><td colspan="7" class="empty">ยังไม่มีรายการขอเบิก</td></tr>'}
         </tbody></table></div>
       </section>`;
+    if(adminView)$("#toggleRequestOpenBtn").onclick=()=>toggleRequestOpen(requestOpen);
     if(canNew)$("#newRequestBtn").onclick=()=>newRequest();
     $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
     $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
     lucide.createIcons();
+  }catch(e){err(e)}
+}
+async function toggleRequestOpen(currentOpen){
+  if(!hasRole("admin"))return;
+  const next=!currentOpen;
+  const q=await Swal.fire({
+    icon:next?"question":"warning",
+    title:next?"เปิดรับรายการขอเบิก?":"ปิดรับรายการขอเบิก?",
+    text:next?"ครูและผู้เกี่ยวข้องจะสามารถส่งคำขอเบิกใหม่ได้":"รายการเดิมยังดูและดำเนินการต่อได้ แต่จะไม่สามารถส่งคำขอใหม่ได้",
+    showCancelButton:true,confirmButtonText:next?"เปิดรับคำขอ":"ปิดรับคำขอ",cancelButtonText:"ยกเลิก",
+    confirmButtonColor:next?"#0f766e":"#dc2626"
+  });
+  if(!q.isConfirmed)return;
+  try{
+    await api("/api/request-settings",{method:"PUT",body:JSON.stringify({open:next})});
+    requests();
   }catch(e){err(e)}
 }
 function addBillRow(description="",amountValue=""){
