@@ -11,8 +11,15 @@ function enrich(rs,projects,activities){
   const pm=Object.fromEntries(projects.map(x=>[x.id,x])),am=Object.fromEntries(activities.map(x=>[x.id,x]));
   return rs.map(r=>({...r,projectCode:pm[r.projectId]?.code||"",projectName:pm[r.projectId]?.name||"",projectOwner:pm[r.projectId]?.owner||"",activityCode:am[r.activityId]?.code||"",activityName:am[r.activityId]?.name||"",fundLabel:FUND_LABELS[r.fundType]||r.fundType}));
 }
-function availableFor(requests,fund,excludeId=""){
-  const paid=requests.filter(r=>r.id!==excludeId&&r.activityId===fund.activityId&&r.fundType===fund.fundType&&r.status==="paid").reduce((s,r)=>s+amount(r.paidAmount||r.totalAmount),0);
+function expenseRequest(expense,requests){
+  if(expense.requestId)return requests.find(r=>r.id===expense.requestId)||null;
+  const no=(String(expense.note||"").match(/REQ-\d{4}-\d{4}/)||String(expense.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0];
+  return no?requests.find(r=>r.requestNo===no)||null:null;
+}
+function expenseFundType(expense,requests){return expense.fundType||expenseRequest(expense,requests)?.fundType||""}
+function availableFor(requests,expenses,fund,excludeId=""){
+  const excluded=requests.find(r=>r.id===excludeId);
+  const paid=expenses.filter(e=>e.activityId===fund.activityId&&expenseFundType(e,requests)===fund.fundType&&!(excluded&&expenseRequest(e,requests)?.id===excluded.id)).reduce((s,e)=>s+amount(e.amount),0);
   const reserved=requests.filter(r=>r.id!==excludeId&&r.activityId===fund.activityId&&r.fundType===fund.fundType&&PENDING_STATUSES.includes(r.status)).reduce((s,r)=>s+amount(r.totalAmount),0);
   return Math.max(amount(fund.budget)-paid-reserved,0);
 }
@@ -33,7 +40,7 @@ export async function onRequestGet(ctx){
     if(scope==="detail"){
       const r=requests.find(x=>x.id===id);if(!r||!canSee(a.u,r))return bad("ไม่พบคำขอ",404);
       const meta=metas.find(x=>x.projectId===r.projectId);
-      const paidExpense=expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
+      const paidExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
       const enriched=enrich([r],projects,activities)[0];
       if(paidExpense?.docNo)enriched.paymentDocNo=paidExpense.docNo;
       return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value]))});
@@ -67,7 +74,7 @@ export async function onRequestPost(ctx){
     const rows=Array.isArray(d.items)?d.items.map(x=>({description:String(x.description||"").trim(),amount:amount(x.amount)})).filter(x=>x.description&&x.amount>0):[];
     if(!rows.length)return bad("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
     if(rows.length>50)return bad("รายการบิลมากเกินไป");
-    const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,fund);
+    const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,expenses,fund);
     if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
     const fy=String(p.fiscalYear||""),seq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0)+1,now=new Date().toISOString();
@@ -95,7 +102,7 @@ export async function onRequestPut(ctx){
       const rows=Array.isArray(d.items)?d.items.map(x=>({description:String(x.description||"").trim(),amount:amount(x.amount)})).filter(x=>x.description&&x.amount>0):[];
       if(!rows.length)return bad("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
       if(rows.length>50)return bad("รายการบิลมากเกินไป");
-      const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,fund,r.id);
+      const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,expenses,fund,r.id);
       if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
       if(r.status==="paid"&&amount(r.paidAmount)>total)return bad("ยอดขอเบิกใหม่ต้องไม่น้อยกว่ายอดที่จ่ายแล้ว "+amount(r.paidAmount).toLocaleString("th-TH")+" บาท",409);
       if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
@@ -108,8 +115,8 @@ export async function onRequestPut(ctx){
       if(updates.length)await batchUpdateRows(ctx.env,"RequestItems",updates);
       if(rows.length>oldItems.length)await bulkAppend(ctx.env,"RequestItems",rows.slice(oldItems.length).map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
       if(r.status==="paid"){
-        const linkedExpense=expenses.find(x=>String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo));
-        if(linkedExpense)await update(ctx.env,"Expenses",linkedExpense.id,{projectId:p.id,activityId:act.id,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),note:"ประเภทเงิน: "+(FUND_LABELS[d.fundType]||d.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),updatedAt:now});
+        const linkedExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo));
+        if(linkedExpense)await update(ctx.env,"Expenses",linkedExpense.id,{projectId:p.id,activityId:act.id,requestId:r.id,fundType:d.fundType,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),note:"ประเภทเงิน: "+(FUND_LABELS[d.fundType]||d.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),updatedAt:now});
       }
       return json({ok:true,request:edited});
     }
@@ -133,11 +140,11 @@ export async function onRequestPut(ctx){
       const paid=amount(d.paidAmount||r.totalAmount);if(paid<=0||paid>amount(r.totalAmount))return bad("ยอดจ่ายจริงไม่ถูกต้อง");
       if(!d.paymentDate)return bad("กรุณาระบุวันที่จ่ายเงิน");
       const fund=funds.find(x=>x.activityId===r.activityId&&x.fundType===r.fundType);if(!fund)return bad("ไม่พบข้อมูลงบกิจกรรม");
-      const available=availableFor(requests,fund,r.id);if(paid>available)return bad("ยอดจ่ายทำให้งบประเภทเงินนี้ติดลบ",409);
+      const available=availableFor(requests,expenses,fund,r.id);if(paid>available)return bad("ยอดจ่ายทำให้งบประเภทเงินนี้ติดลบ",409);
       const p=projects.find(x=>x.id===r.projectId),act=activities.find(x=>x.id===r.activityId);
       const paymentDocNo=String(d.paymentDocNo||"").trim()||nextExpenseDocNo(expenses,projects,p?.fiscalYear||r.fiscalYear);
       const paidReq=await update(ctx.env,"Requests",r.id,{status:"paid",paymentDate:d.paymentDate,paymentDocNo,paidAmount:paid,financeNote:String(d.note||"").trim(),financeBy:a.u.displayName,updatedAt:now});
-      await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:paymentDocNo,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now});
+      await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:paymentDocNo,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now,requestId:r.id,fundType:r.fundType});
       return json({ok:true,request:paidReq});
     }
     return bad("ไม่รู้จักคำสั่ง");
@@ -158,6 +165,7 @@ export async function onRequestDelete(ctx){
     const reqNo=String(r.requestNo||"");
     const linkedItems=itemRows.filter(x=>x.requestId===id);
     const linkedExpenses=expenseRows.filter(x=>
+      x.requestId===r.id||
       String(x.note||"").includes("คำขอ "+reqNo)||
       String(x.description||"").includes(reqNo)
     );
