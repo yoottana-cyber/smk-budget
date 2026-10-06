@@ -65,6 +65,9 @@ Environment Variables / Secrets:
 - `SETUP_KEY` = คีย์สำหรับ setup ครั้งแรก
 - `ADMIN_USERNAME` = เช่น `admin`
 - `ADMIN_PASSWORD` = รหัสผ่านเริ่มต้น
+- `PUSH_VAPID_PUBLIC_KEY` = VAPID public key สำหรับ Web Push
+- `PUSH_VAPID_PRIVATE_KEY` = VAPID private key (ตั้งเป็น Secret)
+- `PUSH_VAPID_SUBJECT` = URL หรือ mailto สำหรับผู้ดูแล เช่น `https://YOUR-DOMAIN.pages.dev/`
 
 ## 5. Setup ครั้งแรก
 หลัง deploy ให้เรียก:
@@ -93,6 +96,13 @@ curl -X POST https://YOUR-DOMAIN.pages.dev/api/setup \
 
 ### Users
 `id, username, passwordHash, role, displayName, status, createdAt` — ช่อง `role` รองรับหลายบทบาทโดยเก็บเป็นค่าคั่นด้วย comma เพื่อให้ข้อมูลเดิมยังใช้งานได้
+
+## Push Notification / PWA
+- รองรับติดตั้งบน Android และ iPhone/iPad แบบ PWA
+- iPhone ต้องเพิ่มเว็บไปยังหน้าจอโฮมก่อนจึงจะเปิด Web Push ได้
+- ผู้ใช้เปิด/ปิดการแจ้งเตือนจากเมนูมือถือได้เอง
+- ระบบแจ้งเตือนอัตโนมัติเมื่อมีคำขอใหม่, พัสดุรับเรื่อง, ส่งการเงิน, ส่งกลับแก้ไข, ไม่อนุมัติ และจ่ายเงินแล้ว
+- Subscription เก็บในชีต `PushSubscriptions` และผูกกับบัญชีผู้ใช้
 
 ## ข้อเสนอสำหรับเฟสถัดไป
 - หน้าจอจัดการผู้ใช้
