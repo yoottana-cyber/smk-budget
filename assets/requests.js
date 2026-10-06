@@ -258,8 +258,8 @@ async function procurementQueue(){
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
     $$("[data-send]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.send,"send_finance"));
-    $$$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
-    $$$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
+    $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
+    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
@@ -281,8 +281,8 @@ async function financeQueue(){
       </tbody></table></div></section>`;
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
-    $$$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
-    $$$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
+    $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
+    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
