@@ -109,7 +109,9 @@ export async function ensureExtra(env){
       {key:"schoolLocation",value:"อำเภอห้วยยอด จังหวัดตรัง",updatedAt:now},
       {key:"financeOfficer",value:"นางสาวจันทรา ชำนาญดง",updatedAt:now},
       {key:"directorName",value:"นายจักรพงษ์ ทองประดับ",updatedAt:now},
-      {key:"directorTitle",value:"ผู้อำนวยการโรงเรียนสามัคคีศึกษา",updatedAt:now}
+      {key:"directorTitle",value:"ผู้อำนวยการโรงเรียนสามัคคีศึกษา",updatedAt:now},
+      {key:"systemTitle",value:"ระบบบริหารจัดการงบประมาณ",updatedAt:now},
+      {key:"schoolLogo",value:"",updatedAt:now}
     ]);
   }
   ensureExtraReadyUntil=Date.now()+300000;
