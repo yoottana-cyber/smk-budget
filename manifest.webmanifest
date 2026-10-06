@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "ระบบบริหารจัดการงบประมาณ โรงเรียนสามัคคีศึกษา",
+  "short_name": "SMK Budget",
+  "description": "ระบบบริหารจัดการงบประมาณ โครงการ กิจกรรม การขอเบิก พัสดุ การเงิน และรายงาน โรงเรียนสามัคคีศึกษา",
+  "lang": "th",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0b1724",
+  "categories": ["education", "productivity", "finance"],
+  "icons": [
+    {"src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
