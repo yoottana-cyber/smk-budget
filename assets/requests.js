@@ -49,9 +49,9 @@ async function requests(){
         <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการขอเบิก"><i data-lucide="pencil"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
       $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-      $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
+      $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
       $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
-      $("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),requests));
+      $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),requests));
       lucide.createIcons();
     };
 
@@ -258,8 +258,8 @@ async function procurementQueue(){
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
     $$("[data-send]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.send,"send_finance"));
-    $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
-    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
+    $$$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
+    $$$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
@@ -281,8 +281,8 @@ async function financeQueue(){
       </tbody></table></div></section>`;
     $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
     $$("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
-    $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
-    $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
+    $$$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
+    $$$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
     lucide.createIcons();
   }catch(e){err(e)}
 }
