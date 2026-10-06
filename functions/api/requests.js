@@ -83,8 +83,6 @@ export async function onRequestPut(ctx){
     const a=await auth(ctx,allowedRoles);if(a.error)return bad("ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const d=await readBody(ctx.request);
     const [requests,items,projects,activities,funds,metas,settings,expenses]=await loadAll(ctx.env);
-    const requestOpen=String(settings.find(x=>x.key==="requestOpen")?.value??"true").toLowerCase()!=="false";
-    if(!requestOpen&&!hasRole(a.u,"admin"))return bad("ขณะนี้ปิดรับรายการขอเบิกใหม่",403);
     const r=requests.find(x=>x.id===d.id);if(!r)return bad("ไม่พบคำขอ",404);
     const now=new Date().toISOString();
     if(d.action==="admin_edit"){
