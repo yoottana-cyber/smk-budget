@@ -60,13 +60,30 @@ function applyBrand(settings={}){
   if($("#sidebarSchoolName"))$("#sidebarSchoolName").textContent=schoolName;
   for(const id of ["loginBrandMark","appBrandMark"]){
     const el=$("#"+id);if(!el)continue;
-    el.innerHTML=logo?`<img src="${logo}" alt="ตราโรงเรียน">`:'<i data-lucide="landmark"></i>';
+    if(logo){
+      const current=el.querySelector("img")?.getAttribute("src")||"";
+      if(current!==logo)el.innerHTML=`<img src="${logo}" alt="ตราโรงเรียน" decoding="async" fetchpriority="${id==="loginBrandMark"?"high":"auto"}">`;
+      el.classList.add("logo-ready");
+    }else{
+      el.innerHTML='<i data-lucide="landmark"></i>';el.classList.remove("logo-ready");
+    }
   }
   document.title=systemTitle+" | "+schoolName;
   lucide.createIcons();
 }
+const BRAND_CACHE_KEY="budget_public_brand_v1";
+function readBrandCache(){
+  try{const x=JSON.parse(localStorage.getItem(BRAND_CACHE_KEY)||"null");return x&&typeof x==="object"?x:null}catch{return null}
+}
+function writeBrandCache(settings){
+  try{localStorage.setItem(BRAND_CACHE_KEY,JSON.stringify(settings||{}))}catch{}
+}
 async function loadPublicBrand(){
-  try{const x=await api("/api/settings?public=1");applyBrand(x.settings||{})}catch{}
+  const cached=readBrandCache();if(cached)applyBrand(cached);
+  try{
+    const x=await api("/api/settings?public=1&_="+Date.now()),settings=x.settings||{};
+    applyBrand(settings);writeBrandCache(settings);
+  }catch{}
 }
 async function resizeSchoolLogo(file,maxSide=280,quality=.82){
   if(!file||!String(file.type||"").startsWith("image/"))throw new Error("กรุณาเลือกไฟล์รูปภาพ");
@@ -87,16 +104,48 @@ async function resizeSchoolLogo(file,maxSide=280,quality=.82){
 }
 
 async function init(){
+  const cachedBrand=readBrandCache();if(cachedBrand)applyBrand(cachedBrand);
   lucide.createIcons();
-  await loadPublicBrand();
   $("#loginForm").onsubmit=login; $("#logoutBtn").onclick=()=>logout(true); $("#refreshBtn").onclick=refreshData;
+  $("#togglePassword").onclick=()=>{
+    const input=$("#password"),show=input.type==="password";input.type=show?"text":"password";
+    $("#togglePassword").innerHTML=`<i data-lucide="${show?"eye-off":"eye"}"></i>`;
+    $("#togglePassword").setAttribute("aria-label",show?"ซ่อนรหัสผ่าน":"แสดงรหัสผ่าน");lucide.createIcons();
+  };
   $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;updateWorkflowBadges();render()};
-  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;$$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x===b));render()};
+  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x===b));render()};
+  loadPublicBrand();
   if(state.token){try{state.user=(await api("/api/me")).user;showApp();await refreshData()}catch{showLogin()}}else showLogin();
 }
+function setLoginLoading(active,text="กำลังเข้าสู่ระบบ..."){
+  const notice=$("#loginNotice"),noticeText=$("#loginNoticeText"),btn=$("#loginSubmitBtn");
+  if(notice){notice.classList.toggle("hidden",!active);notice.classList.toggle("is-error",false)}
+  if(noticeText)noticeText.textContent=text;
+  if(btn){btn.disabled=active;btn.classList.toggle("is-loading",active);btn.innerHTML=active?'<span class="login-spinner small"></span><span>กำลังเข้าสู่ระบบ...</span>':'<i data-lucide="log-in"></i><span>เข้าสู่ระบบ</span>'}
+  if(active){$("#username").readOnly=true;$("#password").readOnly=true}else{$("#username").readOnly=false;$("#password").readOnly=false}
+  lucide.createIcons();
+}
+function showLoginError(message){
+  const notice=$("#loginNotice"),noticeText=$("#loginNoticeText");
+  if(!notice||!noticeText)return;
+  notice.classList.remove("hidden");notice.classList.add("is-error");
+  noticeText.textContent=message||"เข้าสู่ระบบไม่สำเร็จ";
+}
 async function login(e){
-  e.preventDefault(); const b=e.submitter;b.disabled=true;
-  try{const x=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("#username").value.trim(),password:$("#password").value})});state.token=x.token;state.user=x.user;sessionStorage.setItem("budget_token",x.token);showApp();await refreshData()}catch(e){err(e)}finally{b.disabled=false}
+  e.preventDefault();
+  const username=$("#username").value.trim(),password=$("#password").value;
+  if(!username||!password)return showLoginError("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
+  setLoginLoading(true);
+  try{
+    const x=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
+    state.token=x.token;state.user=x.user;sessionStorage.setItem("budget_token",x.token);
+    if($("#loginNoticeText"))$("#loginNoticeText").textContent="เข้าสู่ระบบสำเร็จ กำลังโหลดข้อมูล...";
+    showApp();await refreshData();
+  }catch(ex){
+    setLoginLoading(false);showLoginError(ex.message||"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+  }finally{
+    if(!state.user)setLoginLoading(false);
+  }
 }
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
