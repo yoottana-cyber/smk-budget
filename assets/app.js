@@ -1,4 +1,6 @@
-const state={token:sessionStorage.getItem("budget_token")||"",user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{},integrityReady:false,integrityReport:null};
+const AUTH_TOKEN_KEY="budget_token",AUTH_REMEMBER_KEY="budget_remember";
+const storedToken=localStorage.getItem(AUTH_TOKEN_KEY)||sessionStorage.getItem(AUTH_TOKEN_KEY)||"";
+const state={token:storedToken,user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{},integrityReady:false,integrityReport:null};
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const num=n=>Number(String(n??0).replace(/,/g,""))||0;
@@ -9,6 +11,91 @@ const userRoles=u=>Array.isArray(u?.roles)&&u.roles.length?u.roles:(u?.role?[u.r
 const hasRole=(role,u=state.user)=>userRoles(u).includes(role);
 const hasAnyRole=(roles,u=state.user)=>roles.some(role=>hasRole(role,u));
 const canPlanEdit=()=>hasAnyRole(["admin","planner"]), canFinanceEdit=()=>hasAnyRole(["admin","finance"]), canAdmin=()=>hasRole("admin");
+
+function saveAuthToken(token,remember=true){
+  localStorage.removeItem(AUTH_TOKEN_KEY);sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.setItem(AUTH_REMEMBER_KEY,remember?"1":"0");
+  if(remember)localStorage.setItem(AUTH_TOKEN_KEY,token);else sessionStorage.setItem(AUTH_TOKEN_KEY,token);
+}
+function clearAuthToken(){
+  localStorage.removeItem(AUTH_TOKEN_KEY);sessionStorage.removeItem(AUTH_TOKEN_KEY);
+}
+let deferredInstallPrompt=null;
+function isStandaloneApp(){
+  return window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
+}
+async function installApp(){
+  if(isStandaloneApp())return Swal.fire({icon:"success",title:"ติดตั้งแอปแล้ว",text:"กำลังใช้งานในโหมดแอปบนอุปกรณ์นี้"});
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    const choice=await deferredInstallPrompt.userChoice;
+    if(choice?.outcome==="accepted")deferredInstallPrompt=null;
+    syncMobileNavigation();return;
+  }
+  const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  if(isiOS){
+    return Swal.fire({icon:"info",title:"ติดตั้งบน iPhone / iPad",html:'<div style="text-align:left;line-height:1.7"><strong>1.</strong> เปิดเว็บไซต์นี้ด้วย Safari<br><strong>2.</strong> แตะปุ่ม <b>แชร์</b> ด้านล่าง<br><strong>3.</strong> เลือก <b>เพิ่มไปยังหน้าจอโฮม</b><br><strong>4.</strong> แตะ <b>เพิ่ม</b><br><br><span class="muted">ถ้าเปิดจาก LINE ให้เลือก “เปิดใน Safari” ก่อน</span></div>',confirmButtonText:"เข้าใจแล้ว",confirmButtonColor:"#0f766e"});
+  }
+  return Swal.fire({icon:"info",title:"ติดตั้งแอป",html:'เปิดเมนูของเบราว์เซอร์ แล้วเลือก <b>ติดตั้งแอป</b> หรือ <b>เพิ่มไปยังหน้าจอหลัก</b>',confirmButtonColor:"#0f766e"});
+}
+function registerPwa(){
+  if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
+}
+const MOBILE_ROUTE_META={
+  dashboard:{label:"ภาพรวม",icon:"layout-dashboard"},projects:{label:"โครงการ",icon:"folder-kanban"},activities:{label:"กิจกรรม",icon:"list-checks"},
+  import:{label:"นำเข้าโครงการ",icon:"file-up"},requests:{label:"ขอเบิกเงิน",short:"ขอเบิก",icon:"file-text"},procurement:{label:"งานพัสดุ",short:"พัสดุ",icon:"package-check"},
+  financeQueue:{label:"รอจ่ายเงิน",short:"รอจ่าย",icon:"badge-dollar-sign"},expenses:{label:"รายจ่าย",icon:"receipt-text"},reports:{label:"รายงาน",icon:"chart-no-axes-combined"},
+  users:{label:"ผู้ใช้งาน",icon:"users"},settings:{label:"ตั้งค่าระบบ",icon:"settings"},health:{label:"ตรวจสุขภาพข้อมูล",icon:"heart-pulse"},
+  adminTools:{label:"เครื่องมือระบบ",icon:"wrench"},audit:{label:"ประวัติการใช้งาน",icon:"history"}
+};
+function mobilePrimaryRoute(){
+  if(hasAnyRole(["admin","planner","teacher"]))return"requests";
+  if(hasRole("procurement"))return"procurement";
+  if(hasRole("finance"))return"financeQueue";
+  return"reports";
+}
+function routeBadgeValue(route){
+  const src=$("#mainNav [data-route='"+route+"'] .nav-badge");
+  return src&&!src.classList.contains("hidden")?String(src.textContent||"").trim():"";
+}
+function syncMobileNavigation(){
+  if(!state.user)return;
+  const primaryRoute=mobilePrimaryRoute(),meta=MOBILE_ROUTE_META[primaryRoute]||MOBILE_ROUTE_META.requests,primary=$("#mobilePrimaryNav");
+  if(primary){
+    primary.dataset.mobileRoute=primaryRoute;
+    const badge=routeBadgeValue(primaryRoute);
+    primary.innerHTML='<span class="mobile-primary-circle"><i data-lucide="'+meta.icon+'"></i><span id="mobilePrimaryBadge" class="mobile-nav-badge '+(badge?"":"hidden")+'">'+esc(badge||"0")+'</span></span><span id="mobilePrimaryLabel">'+esc(meta.short||meta.label)+'</span>';
+  }
+  Array.from(document.querySelectorAll("#mobileBottomNav [data-mobile-route]")).forEach(b=>b.classList.toggle("active",b.dataset.mobileRoute===state.route));
+  const name=$("#mobileUserName"),roles=$("#mobileUserRoles");
+  if(name)name.textContent=state.user.displayName||state.user.username||"-";
+  if(roles)roles.textContent=userRoles(state.user).map(r=>ROLE_LABELS[r]||r).join(" • ");
+  const visibleRoutes=Array.from($("#mainNav")?.querySelectorAll("[data-route]")||[]).filter(b=>!b.classList.contains("hidden")).map(b=>b.dataset.route);
+  const box=$("#mobileMenuItems");
+  if(box)box.innerHTML=visibleRoutes.map(route=>{
+    const m=MOBILE_ROUTE_META[route]||{label:route,icon:"circle"},badge=routeBadgeValue(route);
+    return '<button class="mobile-menu-item '+(route===state.route?"active":"")+'" data-mobile-route="'+esc(route)+'"><span><i data-lucide="'+m.icon+'"></i><strong>'+esc(m.label)+'</strong></span>'+(badge?'<em>'+esc(badge)+'</em>':'')+'</button>';
+  }).join("");
+  const install=$("#installAppBtn");if(install)install.classList.toggle("hidden",isStandaloneApp());
+  lucide.createIcons();
+}
+function openMobileMenu(){
+  syncMobileNavigation();
+  $("#mobileMenuSheet")?.classList.add("open");$("#mobileMenuBackdrop")?.classList.add("open");
+  $("#mobileMenuSheet")?.setAttribute("aria-hidden","false");document.body.classList.add("mobile-menu-visible");
+}
+function closeMobileMenu(){
+  $("#mobileMenuSheet")?.classList.remove("open");$("#mobileMenuBackdrop")?.classList.remove("open");
+  $("#mobileMenuSheet")?.setAttribute("aria-hidden","true");document.body.classList.remove("mobile-menu-visible");
+}
+function navigateTo(route){
+  if(!route)return;
+  state.route=route;
+  Array.from($("#mainNav")?.querySelectorAll(".nav-item")||[]).forEach(x=>x.classList.toggle("active",x.dataset.route===route));
+  closeMobileMenu();syncMobileNavigation();render();
+  if(window.matchMedia("(max-width:760px)").matches)window.scrollTo({top:0,behavior:"smooth"});
+}
+
 
 const busyTasks=new Map();let busySeq=0;
 function requestStatusLabel(path,method="GET"){
@@ -106,17 +193,25 @@ async function resizeSchoolLogo(file,maxSide=280,quality=.82){
 
 async function init(){
   const cachedBrand=readBrandCache();if(cachedBrand)applyBrand(cachedBrand);
-  lucide.createIcons();
-  $("#loginForm").onsubmit=login; $("#logoutBtn").onclick=()=>logout(true); $("#refreshBtn").onclick=refreshData;
+  lucide.createIcons();registerPwa();
+  if($("#rememberLogin"))$("#rememberLogin").checked=localStorage.getItem(AUTH_REMEMBER_KEY)!=="0";
+  $("#loginForm").onsubmit=login;$("#logoutBtn").onclick=()=>logout(true);$("#mobileLogoutBtn").onclick=()=>logout(true);$("#refreshBtn").onclick=refreshData;
+  $("#loginInstallBtn").onclick=installApp;$("#installAppBtn").onclick=installApp;
+  $("#mobileMenuBtn").onclick=openMobileMenu;$("#mobileMenuClose").onclick=closeMobileMenu;$("#mobileMenuBackdrop").onclick=closeMobileMenu;
+  $("#mobileBottomNav").onclick=e=>{const b=e.target.closest("[data-mobile-route]");if(b)navigateTo(b.dataset.mobileRoute)};
+  $("#mobileMenuItems").onclick=e=>{const b=e.target.closest("[data-mobile-route]");if(b)navigateTo(b.dataset.mobileRoute)};
   $("#togglePassword").onclick=()=>{
     const input=$("#password"),show=input.type==="password";input.type=show?"text":"password";
     $("#togglePassword").innerHTML=`<i data-lucide="${show?"eye-off":"eye"}"></i>`;
     $("#togglePassword").setAttribute("aria-label",show?"ซ่อนรหัสผ่าน":"แสดงรหัสผ่าน");lucide.createIcons();
   };
   $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;updateWorkflowBadges();render()};
-  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x===b));if(window.matchMedia("(max-width:760px)").matches)b.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"});render()};
+  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(b)navigateTo(b.dataset.route)};
   loadPublicBrand();
-  if(state.token){try{state.user=(await api("/api/me")).user;showApp();await refreshData()}catch{showLogin()}}else showLogin();
+  if(state.token){
+    try{state.user=(await api("/api/me")).user;showApp();await refreshData()}
+    catch{clearAuthToken();state.token="";showLogin()}
+  }else showLogin();
 }
 function setLoginLoading(active,text="กำลังเข้าสู่ระบบ..."){
   const notice=$("#loginNotice"),noticeText=$("#loginNoticeText"),btn=$("#loginSubmitBtn");
@@ -144,12 +239,12 @@ function resetLoginUi(){
 }
 async function login(e){
   e.preventDefault();
-  const username=$("#username").value.trim(),password=$("#password").value;
+  const username=$("#username").value.trim(),password=$("#password").value,remember=$("#rememberLogin")?.checked!==false;
   if(!username||!password)return showLoginError("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
   setLoginLoading(true);
   try{
-    const x=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
-    state.token=x.token;state.user=x.user;sessionStorage.setItem("budget_token",x.token);
+    const x=await api("/api/login",{method:"POST",body:JSON.stringify({username,password,remember})});
+    state.token=x.token;state.user=x.user;saveAuthToken(x.token,remember);
     if($("#loginNoticeText"))$("#loginNoticeText").textContent="เข้าสู่ระบบสำเร็จ กำลังโหลดข้อมูล...";
     showApp();await refreshData();
   }catch(ex){
@@ -159,14 +254,14 @@ async function login(e){
   }
 }
 function logout(show=true){
-  sessionStorage.removeItem("budget_token");
+  clearAuthToken();
   state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;state.route="dashboard";state.fiscalYear="";
   state.data={projects:[],activities:[],expenses:[],projectMeta:[],activityFunds:[],requests:[]};
   busyTasks.clear();updateAppStatus();resetLoginUi();showLogin();
   if(show){Swal.close();Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 }
-function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden");resetLoginUi()}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#adminToolsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
+function showLogin(){closeMobileMenu();$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden");resetLoginUi()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#adminToolsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));syncMobileNavigation();lucide.createIcons()}
 function setNavBadge(id,count,label){
   const el=$("#"+id);if(!el)return;
   const n=Math.max(0,Number(count)||0);
@@ -201,6 +296,7 @@ function updateWorkflowBadges(){
   if(rq)rq.title=returned?"มี "+returned+" รายการถูกส่งกลับแก้ไข":"ขอเบิกเงิน";
   if(pn)pn.title=procurement?"มี "+procurement+" รายการรอดำเนินการ":"งานพัสดุ";
   if(fn)fn.title=finance?"มี "+finance+" รายการรอจ่าย":"รอจ่ายเงิน";
+  syncMobileNavigation();
 }
 async function refreshData(){try{state.data=await api("/api/data");years();updateWorkflowBadges();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
@@ -208,7 +304,7 @@ function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();syncMobileNavigation();lucide.createIcons()}
 
 function dashboardRolePanel(allRequests,projects){
   const projectMap=Object.fromEntries((projects||[]).map(p=>[p.id,p])),me=normalizePersonLite(state.user?.displayName),uid=String(state.user?.id||""),username=String(state.user?.username||"");
@@ -344,7 +440,7 @@ function dashboard(){
   </tbody></table></div></section>`;
 
   Array.from(document.querySelectorAll("[data-role-route]")).forEach(b=>b.onclick=()=>{state.route=b.dataset.roleRoute;Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x.dataset.route===state.route));render()});
-  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
+  if($("#repairImportBtn"))$("#repairImportBtn").onclick=()=>{state.route="import";Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x.dataset.route==="import"));render()};
   state.charts.p=new Chart($("#projectChart"),{type:"bar",data:{labels:rows.slice(0,10).map(x=>x.code||x.name),datasets:[{label:"งบประมาณ",data:rows.slice(0,10).map(x=>x.budget),backgroundColor:"rgba(15,118,110,.72)",borderRadius:6},{label:"รายจ่าย",data:rows.slice(0,10).map(x=>x.spent),backgroundColor:"rgba(217,119,6,.72)",borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
   state.charts.u=new Chart($("#usageChart"),{type:"doughnut",data:{labels:["จ่ายจริง","รอเบิก","พร้อมใช้"],datasets:[{data:[spent,Math.max(reserved,0),Math.max(available,0)],backgroundColor:["#0f766e","#f59e0b","#dbeafe"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"68%",plugins:{legend:{position:"bottom"}}}});
   state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
@@ -860,4 +956,6 @@ async function toggleUser(u){
   if(!r.isConfirmed)return;
   try{await api("/api/users",{method:"PUT",body:JSON.stringify({id:u.id,status:next})});await users()}catch(e){err(e)}
 }
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;if(state.user)syncMobileNavigation()});
+window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;if(state.user)syncMobileNavigation()});
 window.addEventListener("DOMContentLoaded",init);
