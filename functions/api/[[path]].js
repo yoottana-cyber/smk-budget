@@ -28,6 +28,14 @@ function hasRole(u,role){return roleList(u?.roles?.length?u.roles:u?.role).inclu
 function hasAnyRole(u,roles=[]){return roles.some(role=>hasRole(u,role))}
 function normPerson(s){return String(s||"").toLowerCase().replace(/\s+/g,"").replace(/^(นาย|นางสาว|นาง|ครู|ดร\.?|ว่าที่ร้อยตรีหญิง|ว่าที่ร้อยตรี)/,"")}
 function ownsProject(u,p){const a=normPerson(u?.displayName),b=normPerson(p?.owner);return !!a&&!!b&&(b.includes(a)||a.includes(b))}
+function requestMine(u,r,projectMap){
+  const me=normPerson(u?.displayName);
+  if(String(r?.requesterUserId||"")===String(u?.id||""))return true;
+  if(String(r?.requesterUsername||"")===String(u?.username||""))return true;
+  if(me&&normPerson(r?.requesterName)===me)return true;
+  const p=projectMap?.[r?.projectId];
+  return hasRole(u,"teacher")&&!!p&&ownsProject(u,p);
+}
 function safeUser(row){const roles=roleList(row.role),r=roles.length?roles:["viewer"];return{id:row.id,username:row.username,role:r[0],roles:r,displayName:row.displayName}}
 
 let googleTokenCache={token:"",exp:0};
@@ -90,7 +98,26 @@ export async function onRequest(ctx){
     }
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
-    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests"]);const teacherOnly=hasRole(a.u,"teacher")&&!hasAnyRole(a.u,["admin","planner","procurement","finance","viewer"]);if(!teacherOnly)return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses,projectMeta:g.ProjectMeta,activityFunds:g.ActivityFunds,requests:g.Requests});const projects=g.Projects.filter(p=>ownsProject(a.u,p)),pids=new Set(projects.map(p=>p.id)),activities=g.Activities.filter(x=>pids.has(x.projectId)),aids=new Set(activities.map(x=>x.id));return json({projects,activities,expenses:g.Expenses.filter(x=>pids.has(x.projectId)),projectMeta:g.ProjectMeta.filter(x=>pids.has(x.projectId)),activityFunds:g.ActivityFunds.filter(x=>aids.has(x.activityId)),requests:g.Requests.filter(x=>pids.has(x.projectId))})}
+    if(path==="data"&&method==="GET"){
+      const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);
+      const g=await listMany(env,["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests"]),pm=Object.fromEntries(g.Projects.map(p=>[p.id,p]));
+      const fullData=hasAnyRole(a.u,["admin","planner","viewer","procurement","finance"]);
+      let projects=g.Projects,activities=g.Activities,expenses=g.Expenses,projectMeta=g.ProjectMeta,activityFunds=g.ActivityFunds;
+      if(!fullData&&hasRole(a.u,"teacher")){
+        projects=g.Projects.filter(p=>ownsProject(a.u,p));const pids=new Set(projects.map(p=>p.id));
+        activities=g.Activities.filter(x=>pids.has(x.projectId));const aids=new Set(activities.map(x=>x.id));
+        expenses=g.Expenses.filter(x=>pids.has(x.projectId));projectMeta=g.ProjectMeta.filter(x=>pids.has(x.projectId));activityFunds=g.ActivityFunds.filter(x=>aids.has(x.activityId));
+      }
+      let requests=[];
+      if(hasAnyRole(a.u,["admin","planner","viewer"]))requests=g.Requests;
+      else{
+        const own=g.Requests.filter(r=>requestMine(a.u,r,pm));
+        const procurement=hasRole(a.u,"procurement")?g.Requests.filter(r=>["submitted","procurement"].includes(String(r.status||"").trim())):[];
+        const finance=hasRole(a.u,"finance")?g.Requests.filter(r=>String(r.status||"").trim()==="finance"):[];
+        requests=[...new Map([...own,...procurement,...finance].map(r=>[r.id,r])).values()];
+      }
+      return json({projects,activities,expenses,projectMeta,activityFunds,requests});
+    }
 
     if(path==="users"){
       const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
