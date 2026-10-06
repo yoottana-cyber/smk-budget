@@ -1,6 +1,6 @@
 const AUTH_TOKEN_KEY="budget_token",AUTH_REMEMBER_KEY="budget_remember";
 const storedToken=localStorage.getItem(AUTH_TOKEN_KEY)||sessionStorage.getItem(AUTH_TOKEN_KEY)||"";
-const state={token:storedToken,user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{},integrityReady:false,integrityReport:null};
+const state={token:storedToken,user:null,data:{projects:[],activities:[],expenses:[]},route:"dashboard",fiscalYear:"",charts:{},integrityReady:false,integrityReport:null,notificationUnread:0};
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const num=n=>Number(String(n??0).replace(/,/g,""))||0;
@@ -105,7 +105,7 @@ function applyRouteFromUrl(){
   url.searchParams.delete("route");history.replaceState(null,"",url.pathname+(url.search?"?"+url.searchParams.toString():"")+url.hash);
 }
 const MOBILE_ROUTE_META={
-  dashboard:{label:"ภาพรวม",icon:"layout-dashboard"},projects:{label:"โครงการ",icon:"folder-kanban"},activities:{label:"กิจกรรม",icon:"list-checks"},
+  dashboard:{label:"ภาพรวม",icon:"layout-dashboard"},notifications:{label:"แจ้งเตือน",icon:"bell"},projects:{label:"โครงการ",icon:"folder-kanban"},activities:{label:"กิจกรรม",icon:"list-checks"},
   import:{label:"นำเข้าโครงการ",icon:"file-up"},requests:{label:"ขอเบิกเงิน",short:"ขอเบิก",icon:"file-text"},procurement:{label:"งานพัสดุ",short:"พัสดุ",icon:"package-check"},
   financeQueue:{label:"รอจ่ายเงิน",short:"รอจ่าย",icon:"badge-dollar-sign"},expenses:{label:"รายจ่าย",icon:"receipt-text"},reports:{label:"รายงาน",icon:"chart-no-axes-combined"},
   users:{label:"ผู้ใช้งาน",icon:"users"},settings:{label:"ตั้งค่าระบบ",icon:"settings"},health:{label:"ตรวจสุขภาพข้อมูล",icon:"heart-pulse"},
@@ -165,6 +165,7 @@ function requestStatusLabel(path,method="GET"){
   const m=String(method||"GET").toUpperCase(),p=String(path||"");
   if(p.includes("/login"))return"กำลังเข้าสู่ระบบ...";
   if(p.includes("/push"))return m==="GET"?"กำลังตรวจสอบการแจ้งเตือน...":"กำลังตั้งค่าการแจ้งเตือน...";
+  if(p.includes("/notifications"))return m==="GET"?"กำลังโหลดศูนย์แจ้งเตือน...":"กำลังอัปเดตการแจ้งเตือน...";
   if(p.includes("/import-projects"))return"กำลังนำเข้าข้อมูล...";
   if(p.includes("/admin-tools"))return m==="GET"?"กำลังเตรียมข้อมูลสำรอง...":"กำลังดำเนินการเครื่องมือระบบ...";
   if(p.includes("/data-health"))return m==="GET"?"กำลังตรวจสุขภาพข้อมูล...":"กำลังซ่อมข้อมูล...";
@@ -319,7 +320,7 @@ async function login(e){
 }
 function logout(show=true){
   clearAuthToken();
-  state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;state.route="dashboard";state.fiscalYear="";
+  state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;state.route="dashboard";state.fiscalYear="";state.notificationUnread=0;
   state.data={projects:[],activities:[],expenses:[],projectMeta:[],activityFunds:[],requests:[]};
   busyTasks.clear();updateAppStatus();resetLoginUi();showLogin();
   if(show){Swal.close();Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
@@ -335,6 +336,72 @@ function setNavBadge(id,count,label){
 }
 function normalizePersonLite(value){
   return String(value||"").toLowerCase().replace(/\s+/g,"").replace(/^(นาย|นางสาว|นาง|ครู|ดร\.?|ว่าที่ร้อยตรีหญิง|ว่าที่ร้อยตรี)/,"");
+}
+
+function setNotificationBadge(count){
+  const n=Math.max(0,Number(count)||0);state.notificationUnread=n;
+  setNavBadge("notificationsBadge",n,"การแจ้งเตือนที่ยังไม่ได้อ่าน");
+  const mobile=$("#mobileNotificationsBadge");
+  if(mobile){mobile.textContent=n>99?"99+":String(n);mobile.classList.toggle("hidden",n===0)}
+  syncMobileNavigation();
+}
+async function refreshNotificationBadge(){
+  if(!state.user)return;
+  try{const x=await api("/api/notifications?limit=1&_="+Date.now());setNotificationBadge(x.unread||0)}catch{}
+}
+function notificationTime(value){
+  const d=new Date(value);if(Number.isNaN(d.getTime()))return"-";
+  return d.toLocaleString("th-TH",{dateStyle:"medium",timeStyle:"short"});
+}
+function notificationRoute(url){
+  try{return new URL(url||"/?route=dashboard",location.origin).searchParams.get("route")||"dashboard"}catch{return"dashboard"}
+}
+async function openNotificationItem(item){
+  try{
+    if(!["1","true","read"].includes(String(item.isRead||"").toLowerCase())){
+      await api("/api/notifications",{method:"POST",body:JSON.stringify({action:"mark_read",id:item.id})});
+      setNotificationBadge(Math.max(0,state.notificationUnread-1));
+    }
+    navigateTo(notificationRoute(item.url));
+  }catch(e){err(e)}
+}
+async function notificationsPage(){
+  $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดการแจ้งเตือน...</div></section>';
+  try{
+    const x=await api("/api/notifications?limit=100&_="+Date.now()),rows=x.notifications||[];
+    setNotificationBadge(x.unread||0);
+    $("#content").innerHTML=`<section class="panel notification-panel">
+      <div class="panel-head">
+        <div><h3>ศูนย์แจ้งเตือน</h3><p class="muted">รวมเหตุการณ์สำคัญของคำขอเบิก งานพัสดุ และการเงินย้อนหลัง</p></div>
+        <div class="actions">
+          <button id="notificationPushBtn" class="btn btn-ghost"><i data-lucide="bell-ring"></i>ตั้งค่า Push</button>
+          ${x.unread?'<button id="notificationReadAllBtn" class="btn btn-primary"><i data-lucide="check-check"></i>อ่านทั้งหมด</button>':""}
+        </div>
+      </div>
+      <div class="notification-summary"><span><strong>${x.unread||0}</strong> ยังไม่ได้อ่าน</span><span><strong>${x.total||0}</strong> ทั้งหมด</span></div>
+      <div class="notification-list">
+        ${rows.length?rows.map(n=>{
+          const unread=![ "1","true","read" ].includes(String(n.isRead||"").toLowerCase());
+          return `<button class="notification-card ${unread?"is-unread":""}" data-notification-id="${esc(n.id)}">
+            <span class="notification-icon"><i data-lucide="${unread?"bell-ring":"bell"}"></i></span>
+            <span class="notification-content"><strong>${esc(n.title||"แจ้งเตือน")}</strong><span>${esc(n.body||"")}</span><small>${esc(notificationTime(n.createdAt))}</small></span>
+            ${unread?'<span class="notification-dot" title="ยังไม่ได้อ่าน"></span>':'<i data-lucide="chevron-right" class="notification-arrow"></i>'}
+          </button>`;
+        }).join(""):'<div class="notification-empty"><i data-lucide="bell-off"></i><strong>ยังไม่มีการแจ้งเตือน</strong><span>เมื่อมีความเคลื่อนไหวในระบบ รายการจะแสดงที่นี่</span></div>'}
+      </div>
+    </section>`;
+    $("#notificationPushBtn").onclick=togglePushNotifications;
+    if($("#notificationReadAllBtn"))$("#notificationReadAllBtn").onclick=async()=>{
+      try{
+        await api("/api/notifications",{method:"POST",body:JSON.stringify({action:"mark_all"})});
+        setNotificationBadge(0);await notificationsPage();
+      }catch(e){err(e)}
+    };
+    Array.from(document.querySelectorAll("[data-notification-id]")).forEach(b=>b.onclick=()=>{
+      const item=rows.find(n=>n.id===b.dataset.notificationId);if(item)openNotificationItem(item);
+    });
+    lucide.createIcons();
+  }catch(e){err(e)}
 }
 function updateWorkflowBadges(){
   const rows=state.data.requests||[],projects=state.data.projects||[];
@@ -362,13 +429,13 @@ function updateWorkflowBadges(){
   if(fn)fn.title=finance?"มี "+finance+" รายการรอจ่าย":"รอจ่ายเงิน";
   syncMobileNavigation();
 }
-async function refreshData(){try{state.data=await api("/api/data");years();updateWorkflowBadges();render()}catch(e){err(e)}}
+async function refreshData(){try{const [data,notifications]=await Promise.all([api("/api/data"),api("/api/notifications?limit=1&_="+Date.now()).catch(()=>({unread:0}))]);state.data=data;setNotificationBadge(notifications.unread||0);years();updateWorkflowBadges();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();syncMobileNavigation();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",notifications:"แจ้งเตือน",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",reports:"รายงาน",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",adminTools:"เครื่องมือระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,notifications:notificationsPage,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,reports,users,settings:systemSettings,health:dataHealth,adminTools,audit:auditLog})[state.route]||dashboard;fn();syncMobileNavigation();lucide.createIcons()}
 
 function dashboardRolePanel(allRequests,projects){
   const projectMap=Object.fromEntries((projects||[]).map(p=>[p.id,p])),me=normalizePersonLite(state.user?.displayName),uid=String(state.user?.id||""),username=String(state.user?.username||"");
