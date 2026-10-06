@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
+import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
@@ -65,8 +65,8 @@ export async function onRequestPost(ctx){
     await ensureExtra(ctx.env);
     const a=await auth(ctx,["admin","planner","teacher"]);if(a.error)return bad(a.error==="FORBIDDEN"?"ไม่มีสิทธิ์ส่งคำขอ":"ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
     const d=await readBody(ctx.request);
-    const g=await listMany(ctx.env,["Requests","RequestItems","Projects","Activities","ActivityFunds"]);
-    const requests=g.Requests,items=g.RequestItems,projects=g.Projects,activities=g.Activities,funds=g.ActivityFunds;
+    const g=await listMany(ctx.env,["Requests","RequestItems","Projects","Activities","ActivityFunds","Expenses"]);
+    const requests=g.Requests,items=g.RequestItems,projects=g.Projects,activities=g.Activities,funds=g.ActivityFunds,expenses=g.Expenses;
     const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
     if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
     if(hasRole(a.u,"teacher")&&!hasAnyRole(a.u,["admin","planner"])&&!ownsProject(a.u,p))return bad("คุณไม่มีสิทธิ์เบิกโครงการนี้",403);
@@ -81,6 +81,7 @@ export async function onRequestPost(ctx){
     const r={id:"req_"+crypto.randomUUID(),requestNo:"REQ-"+fy+"-"+String(seq).padStart(4,"0"),fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
     await append(ctx.env,"Requests",r);
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
+    await writeAudit(ctx.env,a.u,"CREATE","request",r.id,"สร้างคำขอเบิก "+r.requestNo,{requestNo:r.requestNo,totalAmount:r.totalAmount,fundType:r.fundType,projectId:r.projectId,activityId:r.activityId});
     return json({ok:true,request:r},201);
   }catch(e){return bad(e.message||"ส่งคำขอไม่สำเร็จ",500)}
 }
@@ -118,21 +119,22 @@ export async function onRequestPut(ctx){
         const linkedExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo));
         if(linkedExpense)await update(ctx.env,"Expenses",linkedExpense.id,{projectId:p.id,activityId:act.id,requestId:r.id,fundType:d.fundType,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),note:"ประเภทเงิน: "+(FUND_LABELS[d.fundType]||d.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),updatedAt:now});
       }
+      await writeAudit(ctx.env,a.u,"UPDATE","request",r.id,"แก้ไขคำขอเบิก "+r.requestNo,{before:{projectId:r.projectId,activityId:r.activityId,fundType:r.fundType,totalAmount:r.totalAmount},after:{projectId:p.id,activityId:act.id,fundType:d.fundType,totalAmount:total}});
       return json({ok:true,request:edited});
     }
     if(d.action==="cancel"){
       if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin"))||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
-      await update(ctx.env,"Requests",r.id,{status:"cancelled",updatedAt:now});return json({ok:true});
+      await update(ctx.env,"Requests",r.id,{status:"cancelled",updatedAt:now});await writeAudit(ctx.env,a.u,"STATUS","request",r.id,"ยกเลิกคำขอ "+r.requestNo,{from:r.status,to:"cancelled"});return json({ok:true});
     }
     if(d.action==="procurement_start"){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       if(r.status!=="submitted")return bad("สถานะคำขอไม่ถูกต้อง",409);
-      await update(ctx.env,"Requests",r.id,{status:"procurement",procurementBy:a.u.displayName,updatedAt:now});return json({ok:true});
+      await update(ctx.env,"Requests",r.id,{status:"procurement",procurementBy:a.u.displayName,updatedAt:now});await writeAudit(ctx.env,a.u,"STATUS","request",r.id,"พัสดุรับดำเนินการ "+r.requestNo,{from:r.status,to:"procurement"});return json({ok:true});
     }
     if(d.action==="send_finance"){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       if(!["submitted","procurement"].includes(r.status))return bad("สถานะคำขอไม่ถูกต้อง",409);
-      await update(ctx.env,"Requests",r.id,{status:"finance",procurementDocNo:String(d.procurementDocNo||"").trim(),procurementNote:String(d.note||"").trim(),procurementBy:a.u.displayName,updatedAt:now});return json({ok:true});
+      await update(ctx.env,"Requests",r.id,{status:"finance",procurementDocNo:String(d.procurementDocNo||"").trim(),procurementNote:String(d.note||"").trim(),procurementBy:a.u.displayName,updatedAt:now});await writeAudit(ctx.env,a.u,"STATUS","request",r.id,"ส่งคำขอไปการเงิน "+r.requestNo,{from:r.status,to:"finance",procurementDocNo:String(d.procurementDocNo||"").trim()});return json({ok:true});
     }
     if(d.action==="pay"){
       if(!hasAnyRole(a.u,["admin","finance"]))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
@@ -145,6 +147,7 @@ export async function onRequestPut(ctx){
       const paymentDocNo=String(d.paymentDocNo||"").trim()||nextExpenseDocNo(expenses,projects,p?.fiscalYear||r.fiscalYear);
       const paidReq=await update(ctx.env,"Requests",r.id,{status:"paid",paymentDate:d.paymentDate,paymentDocNo,paidAmount:paid,financeNote:String(d.note||"").trim(),financeBy:a.u.displayName,updatedAt:now});
       await append(ctx.env,"Expenses",{id:"exp_"+crypto.randomUUID(),projectId:r.projectId,activityId:r.activityId,date:d.paymentDate,docNo:paymentDocNo,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),category:"เบิกจ่ายตามคำขอ",amount:paid,payee:r.requesterName,note:"ประเภทเงิน: "+(FUND_LABELS[r.fundType]||r.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),createdBy:a.u.username,createdAt:now,updatedAt:now,requestId:r.id,fundType:r.fundType});
+      await writeAudit(ctx.env,a.u,"PAY","request",r.id,"จ่ายเงินคำขอ "+r.requestNo,{paymentDocNo,paymentDate:d.paymentDate,paidAmount:paid,fundType:r.fundType});
       return json({ok:true,request:paidReq});
     }
     return bad("ไม่รู้จักคำสั่ง");
@@ -173,6 +176,7 @@ export async function onRequestDelete(ctx){
     if(linkedItems.length)await batchUpdateRows(ctx.env,"RequestItems",linkedItems.map(x=>({__row:x.__row,...blank(x)})));
     if(linkedExpenses.length)await batchUpdateRows(ctx.env,"Expenses",linkedExpenses.map(x=>({__row:x.__row,...blank(x)})));
     await batchUpdateRows(ctx.env,"Requests",[{__row:r.__row,...blank(r)}]);
+    await writeAudit(ctx.env,a.u,"DELETE","request",r.id,"ลบคำขอ "+reqNo,{status:r.status,totalAmount:r.totalAmount,items:linkedItems.length,expenses:linkedExpenses.length});
     return json({ok:true,deleted:{request:1,items:linkedItems.length,expenses:linkedExpenses.length}});
   }catch(e){return bad(e.message||"ลบคำขอไม่สำเร็จ",500)}
 }
