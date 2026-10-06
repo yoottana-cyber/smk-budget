@@ -384,7 +384,7 @@ async function auditLog(){
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดประวัติการใช้งาน...</div></section>';
   try{
     const data=await api("/api/audit-log?limit=500"),logs=data.logs||[];
-    const actionLabels={CREATE:"เพิ่ม",UPDATE:"แก้ไข",DELETE:"ลบ",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",IMPORT:"นำเข้า"};
+    const actionLabels={CREATE:"เพิ่ม",UPDATE:"แก้ไข",DELETE:"ลบ",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",IMPORT:"นำเข้า",RETURN:"ส่งกลับ",REJECT:"ไม่อนุมัติ",RESUBMIT:"ส่งใหม่"};
     const entityLabels={request:"คำขอเบิก",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย",user:"ผู้ใช้งาน",settings:"ตั้งค่าระบบ"};
     const actionOptions=[...new Set(logs.map(x=>x.action).filter(Boolean))];
     $("#content").innerHTML=`<section class="panel">
