@@ -1,4 +1,4 @@
-import {ensureExtra,list,append,update,auth,json,bad,readBody} from "../../src/budget-db.js";
+import {ensureExtra,list,append,update,auth,json,bad,readBody,writeAudit} from "../../src/budget-db.js";
 
 const ALLOWED_KEYS=["schoolName","schoolLocation","financeOfficer","directorName","directorTitle","systemTitle","schoolLogo"];
 const DEFAULTS={
@@ -47,6 +47,7 @@ export async function onRequestPut(ctx){
       else await append(ctx.env,"Settings",{key,value,updatedAt:now});
     }
     const latest=await list(ctx.env,"Settings");
+    await writeAudit(ctx.env,a.u,"UPDATE","settings","system","แก้ไขการตั้งค่าระบบ",{changed:Object.keys(values).filter(k=>k!=="schoolLogo"),schoolLogoChanged:Object.prototype.hasOwnProperty.call(values,"schoolLogo")});
     return json({ok:true,settings:asObject(latest)});
   }catch(e){return bad(e.message||"บันทึกการตั้งค่าระบบไม่สำเร็จ",500)}
 }
