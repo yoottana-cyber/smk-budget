@@ -536,3 +536,7 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 @media(display-mode:standalone) and (max-width:760px){
   .sidebar{padding-top:calc(10px + env(safe-area-inset-top))!important}
 }
+
+@media(max-width:760px){
+  .mobile-menu-actions .mobile-push-action{grid-column:1/-1}
+}
