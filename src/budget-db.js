@@ -95,6 +95,16 @@ export async function batchUpdateRows(env,sheet,rows){
   const data=rows.map(({__row,...obj})=>({range:sheet+"!A"+__row+":"+col(h.length)+__row,values:[h.map(k=>obj[k]??"")]}));
   return gf(env,"/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data})});
 }
+export async function replaceSheetData(env,sheet,objects=[]){
+  const h=SCHEMA[sheet];if(!h)throw new Error("ไม่รู้จักชีต "+sheet);
+  await gf(env,"/values/"+encodeURIComponent(sheet+"!A2:"+col(h.length))+":clear",{method:"POST",body:"{}"});
+  if(!objects.length)return{cleared:true,written:0};
+  const rows=objects.map(obj=>h.map(k=>obj?.[k]??""));
+  await put(env,sheet+"!A2:"+col(h.length)+(rows.length+1),rows);
+  return{cleared:true,written:rows.length};
+}
+export function schemaKeys(sheet){const h=SCHEMA[sheet];return h?[...h]:[]}
+
 export async function update(env,sheet,id,obj){
   const h=SCHEMA[sheet],r=await values(env,sheet+"!A:"+col(h.length)),i=r.findIndex((x,n)=>n>0&&x[0]===id);
   if(i<1)throw new Error("ไม่พบข้อมูล");
