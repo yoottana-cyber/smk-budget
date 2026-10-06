@@ -19,8 +19,42 @@ async function api(path,opt={}){
 }
 const err=e=>Swal.fire({icon:"error",title:"ไม่สำเร็จ",text:e.message||String(e),confirmButtonColor:"#0f766e"});
 
+function applyBrand(settings={}){
+  const schoolName=settings.schoolName||"โรงเรียนสามัคคีศึกษา",systemTitle=settings.systemTitle||"ระบบบริหารจัดการงบประมาณ",logo=settings.schoolLogo||"";
+  if($("#loginSchoolName"))$("#loginSchoolName").textContent=schoolName;
+  if($("#loginSystemTitle"))$("#loginSystemTitle").textContent=systemTitle;
+  if($("#sidebarSchoolName"))$("#sidebarSchoolName").textContent=schoolName;
+  for(const id of ["loginBrandMark","appBrandMark"]){
+    const el=$("#"+id);if(!el)continue;
+    el.innerHTML=logo?`<img src="${logo}" alt="ตราโรงเรียน">`:'<i data-lucide="landmark"></i>';
+  }
+  document.title=systemTitle+" | "+schoolName;
+  lucide.createIcons();
+}
+async function loadPublicBrand(){
+  try{const x=await api("/api/settings?public=1");applyBrand(x.settings||{})}catch{}
+}
+async function resizeSchoolLogo(file,maxSide=280,quality=.82){
+  if(!file||!String(file.type||"").startsWith("image/"))throw new Error("กรุณาเลือกไฟล์รูปภาพ");
+  if(file.size>5*1024*1024)throw new Error("ไฟล์รูปต้องมีขนาดไม่เกิน 5 MB");
+  const src=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((resolve,reject)=>{const x=new Image();x.onload=()=>resolve(x);x.onerror=()=>reject(new Error("ไม่สามารถอ่านไฟล์รูปได้"));x.src=src});
+    const scale=Math.min(1,maxSide/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale));
+    const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+    canvas.getContext("2d").drawImage(img,0,0,w,h);
+    let data=canvas.toDataURL("image/webp",quality);
+    if(data.length>45000){
+      const s=Math.min(1,220/Math.max(img.width,img.height));canvas.width=Math.max(1,Math.round(img.width*s));canvas.height=Math.max(1,Math.round(img.height*s));canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);data=canvas.toDataURL("image/webp",.72);
+    }
+    if(data.length>45000)throw new Error("ตราโรงเรียนยังมีขนาดใหญ่เกินไป กรุณาใช้รูปที่รายละเอียดน้อยลง");
+    return data;
+  }finally{URL.revokeObjectURL(src)}
+}
+
 async function init(){
   lucide.createIcons();
+  await loadPublicBrand();
   $("#loginForm").onsubmit=login; $("#logoutBtn").onclick=()=>logout(true); $("#refreshBtn").onclick=refreshData;
   $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;render()};
   $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;$$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x===b));render()};
@@ -32,14 +66,14 @@ async function login(e){
 }
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
 async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,activities,expenses}=filtered();
@@ -312,6 +346,61 @@ async function expenseForm(e=null){
   if(!r.value)return;try{await api("/api/expenses",{method:e?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(x){err(x)}
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
+async function systemSettings(){
+  if(!canAdmin()){state.route="dashboard";return render()}
+  $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดการตั้งค่าระบบ...</div></section>';
+  try{
+    const x=await api("/api/settings"),s=x.settings||{};
+    let currentLogo=s.schoolLogo||"";
+    $("#content").innerHTML=`<section class="panel settings-panel">
+      <div class="panel-head"><div><h3>ตั้งค่าระบบ</h3><p class="muted">ข้อมูลโรงเรียนและผู้ลงนามจะนำไปใช้ในหน้าเว็บและเอกสารของระบบ</p></div></div>
+      <div class="settings-grid">
+        <div class="settings-logo-card">
+          <div id="schoolLogoPreview" class="settings-logo-preview">${currentLogo?`<img src="${currentLogo}" alt="ตราโรงเรียน">`:'<i data-lucide="school"></i>'}</div>
+          <strong>ตราโรงเรียน</strong>
+          <p class="muted">รองรับ JPG, PNG, WebP ระบบจะย่อรูปอัตโนมัติ</p>
+          <input id="schoolLogoFile" type="file" accept="image/*" hidden>
+          <div class="actions" style="justify-content:center">
+            <button id="pickSchoolLogo" class="btn btn-ghost" type="button"><i data-lucide="image-up"></i>เลือกตราโรงเรียน</button>
+            <button id="removeSchoolLogo" class="btn btn-ghost" type="button"><i data-lucide="trash-2"></i>เอาตราออก</button>
+          </div>
+        </div>
+        <form id="settingsForm" class="form-stack settings-form">
+          <label>ชื่อระบบ<input id="setSystemTitle" value="${esc(s.systemTitle||"ระบบบริหารจัดการงบประมาณ")}"></label>
+          <label>ชื่อโรงเรียน<input id="setSchoolName" value="${esc(s.schoolName||"")}"></label>
+          <label>ที่ตั้งโรงเรียน<input id="setSchoolLocation" value="${esc(s.schoolLocation||"")}"></label>
+          <div class="form-grid-2">
+            <label>เจ้าหน้าที่การเงิน<input id="setFinanceOfficer" value="${esc(s.financeOfficer||"")}"></label>
+            <label>ผู้อำนวยการ<input id="setDirectorName" value="${esc(s.directorName||"")}"></label>
+          </div>
+          <label>ตำแหน่งผู้อำนวยการ<input id="setDirectorTitle" value="${esc(s.directorTitle||"")}"></label>
+          <div><button class="btn btn-primary" type="submit"><i data-lucide="save"></i>บันทึกการตั้งค่า</button></div>
+        </form>
+      </div>
+    </section>`;
+    const preview=()=>{
+      const p=$("#schoolLogoPreview");p.innerHTML=currentLogo?`<img src="${currentLogo}" alt="ตราโรงเรียน">`:'<i data-lucide="school"></i>';lucide.createIcons();
+    };
+    $("#pickSchoolLogo").onclick=()=>$("#schoolLogoFile").click();
+    $("#schoolLogoFile").onchange=async e=>{
+      const file=e.target.files?.[0];if(!file)return;
+      try{currentLogo=await resizeSchoolLogo(file);preview()}catch(ex){err(ex)}
+    };
+    $("#removeSchoolLogo").onclick=()=>{currentLogo="";$("#schoolLogoFile").value="";preview()};
+    $("#settingsForm").onsubmit=async e=>{
+      e.preventDefault();
+      const btn=e.submitter;btn.disabled=true;
+      try{
+        const payload={systemTitle:$("#setSystemTitle").value.trim(),schoolName:$("#setSchoolName").value.trim(),schoolLocation:$("#setSchoolLocation").value.trim(),financeOfficer:$("#setFinanceOfficer").value.trim(),directorName:$("#setDirectorName").value.trim(),directorTitle:$("#setDirectorTitle").value.trim(),schoolLogo:currentLogo};
+        if(!payload.schoolName||!payload.systemTitle)return Swal.fire({icon:"warning",title:"กรุณากรอกชื่อโรงเรียนและชื่อระบบ"});
+        const saved=await api("/api/settings",{method:"PUT",body:JSON.stringify(payload)});
+        applyBrand(saved.settings||payload);
+        await Swal.fire({icon:"success",title:"บันทึกการตั้งค่าแล้ว",timer:1000,showConfirmButton:false});
+      }catch(ex){err(ex)}finally{btn.disabled=false}
+    };
+    lucide.createIcons();
+  }catch(e){err(e)}
+}
 async function users(){
   if(!canAdmin()){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดข้อมูลผู้ใช้งาน...</div></section>';
