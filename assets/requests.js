@@ -42,12 +42,12 @@ async function requests(){
   if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const adminView=hasRole("admin"),scope=adminView?"all":"mine",d=await api("/api/requests?scope="+scope+"&_="+Date.now()),fallbackRows=localRequestRows(scope);if(!d.requests?.length&&fallbackRows.length)d.requests=fallbackRows;const canNew=hasAnyRole(["admin","planner","teacher"]);
+    const adminView=hasRole("admin"),allView=hasAnyRole(["admin","planner"]),scope=allView?"all":"mine",d=await api("/api/requests?scope="+scope+"&_="+Date.now()),fallbackRows=localRequestRows(scope);if(!d.requests?.length&&fallbackRows.length)d.requests=fallbackRows;const canNew=hasAnyRole(["admin","planner","teacher"]);
     const statusOptions=Object.entries(REQUEST_STATUS);
     const allStatuses=Object.keys(REQUEST_STATUS);
     $("#content").innerHTML=`
       <section class="panel">
-        <div class="toolbar"><div><strong>${adminView?"รายการขอเบิกทั้งหมด":"รายการขอเบิกของฉัน"}</strong><p class="muted request-sub">${adminView?"ผู้ดูแลระบบสามารถตรวจสอบและแก้ไขรายการที่ยังไม่จ่ายเงินได้":"ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้"}</p></div>
+        <div class="toolbar"><div><strong>${allView?"รายการขอเบิกทั้งหมด":"รายการขอเบิกของฉัน"}</strong><p class="muted request-sub">${adminView?"ผู้ดูแลระบบสามารถตรวจสอบและแก้ไขรายการที่ยังไม่จ่ายเงินได้":allView?"งานแผนสามารถติดตามคำขอของทุกโครงการได้":"ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้"}</p></div>
         ${canNew?'<button id="newRequestBtn" class="btn btn-primary"><i data-lucide="plus"></i>ขอเบิกเงิน</button>':""}</div>
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:4px 0 14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px">
           <strong style="margin-right:2px">แสดงสถานะ</strong>
