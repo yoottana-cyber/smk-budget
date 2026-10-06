@@ -22,16 +22,47 @@
 <body>
   <div id="appStatus" class="app-status ready" role="status" aria-live="polite"><span class="status-dot"></span><span id="appStatusText">พร้อมใช้งาน</span></div>
   <section id="loginView" class="login-shell">
+    <div class="login-orb login-orb-one"></div>
+    <div class="login-orb login-orb-two"></div>
     <div class="login-card">
-      <div id="loginBrandMark" class="brand-mark"><i data-lucide="landmark"></i></div>
-      <p id="loginSchoolName" class="eyebrow">โรงเรียนสามัคคีศึกษา</p>
-      <h1 id="loginSystemTitle">ระบบบริหารจัดการงบประมาณ</h1>
-      <p class="muted">งานแผน • โครงการ • กิจกรรม • รายจ่าย • เงินคงเหลือ</p>
-      <form id="loginForm" class="form-stack">
-        <label>ชื่อผู้ใช้<input id="username" autocomplete="username" required></label>
-        <label>รหัสผ่าน<input id="password" type="password" autocomplete="current-password" required></label>
-        <button class="btn btn-primary" type="submit"><i data-lucide="log-in"></i>เข้าสู่ระบบ</button>
-      </form>
+      <div class="login-visual">
+        <div class="login-visual-brand">
+          <div id="loginBrandMark" class="brand-mark login-logo" aria-label="ตราโรงเรียน"><span class="logo-skeleton"></span><i data-lucide="landmark"></i></div>
+          <div>
+            <p id="loginSchoolName" class="eyebrow">โรงเรียนสามัคคีศึกษา</p>
+            <strong class="login-brand-title">งานแผนและงบประมาณ</strong>
+          </div>
+        </div>
+        <div class="login-visual-copy">
+          <span class="login-kicker"><i data-lucide="shield-check"></i> ระบบบริหารจัดการงบประมาณ</span>
+          <h2>บริหารงบประมาณ<br>อย่างเป็นระบบและตรวจสอบได้</h2>
+          <p>ติดตามโครงการ การขอเบิก งานพัสดุ การเงิน และรายงานในระบบเดียว</p>
+        </div>
+        <div class="login-feature-list">
+          <span><i data-lucide="circle-check"></i> ติดตามสถานะคำขอแบบเป็นขั้นตอน</span>
+          <span><i data-lucide="circle-check"></i> ตรวจสอบยอดงบและเงินคงเหลือ</span>
+          <span><i data-lucide="circle-check"></i> รายงานและประวัติการใช้งานครบถ้วน</span>
+        </div>
+        <div class="login-visual-footer">โรงเรียนสามัคคีศึกษา • อำเภอห้วยยอด จังหวัดตรัง</div>
+      </div>
+      <div class="login-form-panel">
+        <div class="login-form-head">
+          <span class="login-form-icon"><i data-lucide="key-round"></i></span>
+          <div><p class="eyebrow">ยินดีต้อนรับ</p><h1 id="loginSystemTitle">ระบบบริหารจัดการงบประมาณ</h1></div>
+        </div>
+        <p class="login-help">กรอกชื่อผู้ใช้และรหัสผ่านเพื่อเข้าสู่ระบบ</p>
+        <form id="loginForm" class="form-stack login-form">
+          <label>ชื่อผู้ใช้
+            <div class="login-input-wrap"><i data-lucide="user"></i><input id="username" autocomplete="username" placeholder="ชื่อผู้ใช้" required></div>
+          </label>
+          <label>รหัสผ่าน
+            <div class="login-input-wrap"><i data-lucide="lock-keyhole"></i><input id="password" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required><button id="togglePassword" class="password-toggle" type="button" aria-label="แสดงรหัสผ่าน"><i data-lucide="eye"></i></button></div>
+          </label>
+          <div id="loginNotice" class="login-notice hidden" role="status" aria-live="polite"><span class="login-spinner"></span><span id="loginNoticeText">กำลังเข้าสู่ระบบ...</span></div>
+          <button id="loginSubmitBtn" class="btn btn-primary login-submit" type="submit"><i data-lucide="log-in"></i><span>เข้าสู่ระบบ</span></button>
+        </form>
+        <div class="login-security"><i data-lucide="shield-check"></i><span>ระบบสำหรับบุคลากรที่ได้รับสิทธิ์ใช้งาน</span></div>
+      </div>
     </div>
   </section>
 
