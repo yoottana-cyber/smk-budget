@@ -3,7 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#0b1724">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SMK Budget">
+  <meta name="application-name" content="SMK Budget">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/icon-192.png">
   <title>งานแผนและงบประมาณ | โรงเรียนสามัคคีศึกษา</title>
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.1.1/400.css">
@@ -59,9 +67,11 @@
           <label>รหัสผ่าน
             <div class="login-input-wrap"><i data-lucide="lock-keyhole"></i><input id="password" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required><button id="togglePassword" class="password-toggle" type="button" aria-label="แสดงรหัสผ่าน"><i data-lucide="eye"></i></button></div>
           </label>
+          <label class="remember-login"><input id="rememberLogin" type="checkbox" checked><span>จดจำการเข้าสู่ระบบบนอุปกรณ์นี้</span></label>
           <div id="loginNotice" class="login-notice hidden" role="status" aria-live="polite"><span class="login-spinner"></span><span id="loginNoticeText">กำลังเข้าสู่ระบบ...</span></div>
           <button id="loginSubmitBtn" class="btn btn-primary login-submit" type="submit"><i data-lucide="log-in"></i><span>เข้าสู่ระบบ</span></button>
         </form>
+        <button id="loginInstallBtn" class="login-install-btn" type="button"><i data-lucide="download"></i><span>ติดตั้งแอปบนมือถือ</span></button>
         <div class="login-security"><i data-lucide="shield-check"></i><span>ระบบสำหรับบุคลากรที่ได้รับสิทธิ์ใช้งาน</span></div>
       </div>
     </div>
@@ -105,6 +115,32 @@
       </header>
       <div id="content"></div>
     </main>
+
+    <nav id="mobileBottomNav" class="mobile-bottom-nav" aria-label="เมนูหลักบนมือถือ">
+      <button class="mobile-nav-item" data-mobile-route="dashboard"><i data-lucide="layout-dashboard"></i><span>ภาพรวม</span></button>
+      <button class="mobile-nav-item" data-mobile-route="projects"><i data-lucide="folder-kanban"></i><span>โครงการ</span></button>
+      <button id="mobilePrimaryNav" class="mobile-nav-item mobile-nav-primary" data-mobile-route="requests"><span class="mobile-primary-circle"><i data-lucide="file-text"></i><span id="mobilePrimaryBadge" class="mobile-nav-badge hidden">0</span></span><span id="mobilePrimaryLabel">ขอเบิก</span></button>
+      <button class="mobile-nav-item" data-mobile-route="reports"><i data-lucide="chart-no-axes-combined"></i><span>รายงาน</span></button>
+      <button id="mobileMenuBtn" class="mobile-nav-item" type="button"><i data-lucide="menu"></i><span>เมนู</span></button>
+    </nav>
+
+    <div id="mobileMenuBackdrop" class="mobile-menu-backdrop" aria-hidden="true"></div>
+    <section id="mobileMenuSheet" class="mobile-menu-sheet" aria-hidden="true">
+      <div class="mobile-sheet-handle"></div>
+      <header class="mobile-sheet-head">
+        <div>
+          <small>เข้าสู่ระบบโดย</small>
+          <strong id="mobileUserName">-</strong>
+          <span id="mobileUserRoles">-</span>
+        </div>
+        <button id="mobileMenuClose" class="icon-btn" type="button" aria-label="ปิดเมนู"><i data-lucide="x"></i></button>
+      </header>
+      <div id="mobileMenuItems" class="mobile-menu-items"></div>
+      <div class="mobile-menu-actions">
+        <button id="installAppBtn" class="btn btn-ghost" type="button"><i data-lucide="download"></i>ติดตั้งแอป</button>
+        <button id="mobileLogoutBtn" class="btn btn-ghost danger" type="button"><i data-lucide="log-out"></i>ออกจากระบบ</button>
+      </div>
+    </section>
   </div>
 </body>
 </html>
