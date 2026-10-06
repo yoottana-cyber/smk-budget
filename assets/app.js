@@ -113,7 +113,7 @@ async function init(){
     $("#togglePassword").setAttribute("aria-label",show?"ซ่อนรหัสผ่าน":"แสดงรหัสผ่าน");lucide.createIcons();
   };
   $("#fiscalYearFilter").onchange=e=>{state.fiscalYear=e.target.value;updateWorkflowBadges();render()};
-  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;$(".nav-item",$("#mainNav")).forEach(x=>x.classList.toggle("active",x===b));render()};
+  $("#mainNav").onclick=e=>{const b=e.target.closest("[data-route]");if(!b)return;state.route=b.dataset.route;Array.from($("#mainNav").querySelectorAll(".nav-item")).forEach(x=>x.classList.toggle("active",x===b));render()};
   loadPublicBrand();
   if(state.token){try{state.user=(await api("/api/me")).user;showApp();await refreshData()}catch{showLogin()}}else showLogin();
 }
