@@ -10,12 +10,45 @@ const hasRole=(role,u=state.user)=>userRoles(u).includes(role);
 const hasAnyRole=(roles,u=state.user)=>roles.some(role=>hasRole(role,u));
 const canPlanEdit=()=>hasAnyRole(["admin","planner"]), canFinanceEdit=()=>hasAnyRole(["admin","finance"]), canAdmin=()=>hasRole("admin");
 
+const busyTasks=new Map();let busySeq=0;
+function requestStatusLabel(path,method="GET"){
+  const m=String(method||"GET").toUpperCase(),p=String(path||"");
+  if(p.includes("/login"))return"กำลังเข้าสู่ระบบ...";
+  if(p.includes("/import-projects"))return"กำลังนำเข้าข้อมูล...";
+  if(p.includes("/data-integrity"))return"กำลังตรวจสอบข้อมูล...";
+  if(p.includes("/audit-log"))return"กำลังโหลดประวัติ...";
+  if(p.includes("/settings"))return m==="GET"?"กำลังโหลดการตั้งค่า...":"กำลังบันทึกการตั้งค่า...";
+  if(p.includes("/users"))return m==="GET"?"กำลังโหลดผู้ใช้งาน...":"กำลังบันทึกผู้ใช้งาน...";
+  if(p.includes("/requests")){
+    if(m==="DELETE")return"กำลังลบคำขอ...";
+    if(m==="GET")return"กำลังโหลดคำขอ...";
+    return"กำลังอัปเดตคำขอ...";
+  }
+  if(p.includes("/expenses"))return m==="GET"?"กำลังโหลดรายจ่าย...":m==="DELETE"?"กำลังลบรายจ่าย...":"กำลังบันทึกรายจ่าย...";
+  if(p.includes("/projects"))return m==="DELETE"?"กำลังลบโครงการ...":"กำลังบันทึกโครงการ...";
+  if(p.includes("/activities"))return m==="DELETE"?"กำลังลบกิจกรรม...":"กำลังบันทึกกิจกรรม...";
+  if(p.includes("/data"))return"กำลังโหลดข้อมูล...";
+  return m==="GET"?"กำลังโหลด...":"กำลังประมวลผล...";
+}
+function updateAppStatus(){
+  const el=$("#appStatus"),txt=$("#appStatusText");if(!el||!txt)return;
+  const active=[...busyTasks.values()],busy=active.length>0;
+  el.classList.toggle("busy",busy);el.classList.toggle("ready",!busy);
+  txt.textContent=busy?(active[active.length-1]||"กำลังประมวลผล..."):"พร้อมใช้งาน";
+  document.body.classList.toggle("app-busy",busy);
+}
+function beginBusy(label){const id=++busySeq;busyTasks.set(id,label);updateAppStatus();return id}
+function endBusy(id){busyTasks.delete(id);updateAppStatus()}
 async function api(path,opt={}){
-  const headers={"content-type":"application/json",...(opt.headers||{})};
-  if(state.token)headers.authorization=`Bearer ${state.token}`;
-  const r=await fetch(path,{...opt,headers}),j=await r.json().catch(()=>({}));
-  if(r.status===401){logout(false);throw new Error(j.error||"กรุณาเข้าสู่ระบบใหม่")}
-  if(!r.ok)throw new Error(j.error||"เกิดข้อผิดพลาด"); return j;
+  const method=String(opt.method||"GET").toUpperCase(),busyId=beginBusy(requestStatusLabel(path,method));
+  try{
+    const headers={"content-type":"application/json",...(opt.headers||{})};
+    if(state.token)headers.authorization=`Bearer ${state.token}`;
+    const r=await fetch(path,{...opt,headers}),j=await r.json().catch(()=>({}));
+    if(r.status===401){logout(false);throw new Error(j.error||"กรุณาเข้าสู่ระบบใหม่")}
+    if(!r.ok)throw new Error(j.error||"เกิดข้อผิดพลาด");
+    return j;
+  }finally{endBusy(busyId)}
 }
 const err=e=>Swal.fire({icon:"error",title:"ไม่สำเร็จ",text:e.message||String(e),confirmButtonColor:"#0f766e"});
 
