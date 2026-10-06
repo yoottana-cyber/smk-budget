@@ -131,6 +131,16 @@ function showLoginError(message){
   notice.classList.remove("hidden");notice.classList.add("is-error");
   noticeText.textContent=message||"เข้าสู่ระบบไม่สำเร็จ";
 }
+function resetLoginUi(){
+  const notice=$("#loginNotice"),noticeText=$("#loginNoticeText"),btn=$("#loginSubmitBtn"),user=$("#username"),pass=$("#password"),toggle=$("#togglePassword");
+  if(notice){notice.classList.add("hidden");notice.classList.remove("is-error")}
+  if(noticeText)noticeText.textContent="กำลังเข้าสู่ระบบ...";
+  if(btn){btn.disabled=false;btn.classList.remove("is-loading");btn.innerHTML='<i data-lucide="log-in"></i><span>เข้าสู่ระบบ</span>'}
+  if(user)user.readOnly=false;
+  if(pass){pass.readOnly=false;pass.type="password";pass.value=""}
+  if(toggle){toggle.innerHTML='<i data-lucide="eye"></i>';toggle.setAttribute("aria-label","แสดงรหัสผ่าน")}
+  lucide.createIcons();
+}
 async function login(e){
   e.preventDefault();
   const username=$("#username").value.trim(),password=$("#password").value;
@@ -147,8 +157,14 @@ async function login(e){
     if(!state.user)setLoginLoading(false);
   }
 }
-function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
-function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
+function logout(show=true){
+  sessionStorage.removeItem("budget_token");
+  state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;state.route="dashboard";state.fiscalYear="";
+  state.data={projects:[],activities:[],expenses:[],projectMeta:[],activityFunds:[],requests:[]};
+  busyTasks.clear();updateAppStatus();resetLoginUi();showLogin();
+  if(show){Swal.close();Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
+}
+function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden");resetLoginUi()}
 function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
 function setNavBadge(id,count,label){
   const el=$("#"+id);if(!el)return;
