@@ -15,10 +15,10 @@ async function requests(){
   if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const d=await api("/api/requests?scope=mine"),canNew=hasAnyRole(["admin","planner","teacher"]);
+    const adminView=hasRole("admin"),d=await api("/api/requests?scope="+(adminView?"all":"mine")),canNew=hasAnyRole(["admin","planner","teacher"]);
     $("#content").innerHTML=`
       <section class="panel">
-        <div class="toolbar"><div><strong>รายการขอเบิกของฉัน</strong><p class="muted request-sub">ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้</p></div>
+        <div class="toolbar"><div><strong>${adminView?"รายการขอเบิกทั้งหมด":"รายการขอเบิกของฉัน"}</strong><p class="muted request-sub">${adminView?"ผู้ดูแลระบบสามารถตรวจสอบและแก้ไขรายการที่ยังไม่จ่ายเงินได้":"ส่งคำขอแล้วติดตามสถานะพัสดุและการเงินได้จากหน้านี้"}</p></div>
         ${canNew?'<button id="newRequestBtn" class="btn btn-primary"><i data-lucide="plus"></i>ขอเบิกเงิน</button>':""}</div>
         <div class="table-wrap"><table><thead><tr><th>เลขที่คำขอ</th><th>โครงการ / กิจกรรม</th><th>ช่วงดำเนินการ</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th>สถานะ</th><th></th></tr></thead><tbody>
         ${d.requests.length?d.requests.map(r=>`<tr>
@@ -28,12 +28,13 @@ async function requests(){
           <td>${esc(r.fundLabel||r.fundType)}</td>
           <td class="num"><strong>${money(r.totalAmount)}</strong></td>
           <td>${requestStatusBadge(r.status)}</td>
-          <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}</div></td>
+          <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView&&!["paid","cancelled"].includes(r.status)?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการขอเบิก"><i data-lucide="pencil"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}</div></td>
         </tr>`).join(""):'<tr><td colspan="7" class="empty">ยังไม่มีรายการขอเบิก</td></tr>'}
         </tbody></table></div>
       </section>`;
     if(canNew)$("#newRequestBtn").onclick=()=>newRequest();
-    $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
     $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
     lucide.createIcons();
   }catch(e){err(e)}
@@ -111,6 +112,82 @@ async function newRequest(){
     if(!r.value)return;
     const x=await api("/api/requests",{method:"POST",body:JSON.stringify(r.value)});
     await Swal.fire({icon:"success",title:"ส่งคำขอเรียบร้อย",text:"เลขที่ "+x.request.requestNo});
+    requests();
+  }catch(e){err(e)}
+}
+async function editRequest(id){
+  try{
+    if(!hasRole("admin"))return;
+    const [detail,ctx]=await Promise.all([
+      api("/api/requests?scope=detail&id="+encodeURIComponent(id)),
+      api("/api/request-context")
+    ]);
+    const rq=detail.request;
+    if(["paid","cancelled"].includes(rq.status))return Swal.fire({icon:"info",title:"รายการนี้แก้ไขไม่ได้",text:"รายการที่จ่ายเงินแล้วหรือยกเลิกแล้วถูกล็อกเพื่อรักษาความถูกต้องของข้อมูล"});
+    const eligibleProjects=ctx.projects.filter(p=>String(p.fiscalYear||"")===String(rq.fiscalYear||""));
+    const divisionOrder=["วิชาการ","งบประมาณ","บุคคล","กิจการนักเรียน","บริหารทั่วไป"];
+    const divisions=[...new Set(eligibleProjects.map(p=>p.division||"ไม่ระบุฝ่าย"))].sort((a,b)=>{
+      const ia=divisionOrder.indexOf(a),ib=divisionOrder.indexOf(b);
+      if(ia>=0&&ib>=0)return ia-ib;if(ia>=0)return-1;if(ib>=0)return 1;
+      return a.localeCompare(b,"th");
+    });
+    const pOpts=divisions.map(division=>{
+      const rows=eligibleProjects.filter(p=>(p.division||"ไม่ระบุฝ่าย")===division).sort((a,b)=>String(a.code||"").localeCompare(String(b.code||""),"th",{numeric:true}));
+      return `<optgroup label="${esc(division)}">${rows.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("")}</optgroup>`;
+    }).join("");
+    const x=await Swal.fire({
+      title:"แก้ไขรายการขอเบิก "+esc(rq.requestNo),width:860,
+      html:`<div class="form-stack request-form" style="text-align:left">
+        <label>ผู้ขอเบิก<input value="${esc(rq.requesterName||"-")}" disabled></label>
+        <label>โครงการ<select id="rqProject">${pOpts}</select></label>
+        <label>กิจกรรม<select id="rqActivity"></select></label>
+        <div class="form-grid-2"><label>วันที่เริ่มดำเนินกิจกรรม<input id="rqStart" type="date" value="${esc(rq.startDate||"")}"></label><label>วันที่สิ้นสุด<input id="rqEnd" type="date" value="${esc(rq.endDate||"")}"></label></div>
+        <label>รายละเอียด/วัตถุประสงค์<textarea id="rqDetails">${esc(rq.details||"")}</textarea></label>
+        <label>ประเภทเงิน<select id="rqFund"></select><small id="fundInfo" class="muted"></small></label>
+        <div class="bill-head"><strong>รายการบิล</strong><button id="addBillBtn" type="button" class="btn btn-ghost"><i data-lucide="plus"></i>เพิ่มบิล</button></div>
+        <div id="billRows" class="bill-list"></div>
+        <div class="bill-total"><span>รวมยอดขอเบิก</span><strong id="billTotal">฿0.00</strong></div>
+      </div>`,
+      showCancelButton:true,confirmButtonText:"บันทึกการแก้ไข",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
+      didOpen:()=>{
+        const p=$("#rqProject"),a=$("#rqActivity"),f=$("#rqFund");
+        p.value=rq.projectId;
+        const fillFunds=(preferred="")=>{
+          const fs=ctx.funds.filter(z=>z.activityId===a.value&&num(z.budget)>0);
+          f.innerHTML=fs.length?fs.map(z=>`<option value="${z.fundType}">${esc(({subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"})[z.fundType]||z.fundType)}</option>`).join(""):'<option value="">ไม่พบงบของกิจกรรมนี้</option>';
+          if(preferred&&fs.some(z=>z.fundType===preferred))f.value=preferred;
+          const show=()=>{const z=fs.find(q=>q.fundType===f.value);const addBack=(a.value===rq.activityId&&f.value===rq.fundType)?num(rq.totalAmount):0;$("#fundInfo").textContent=z?"งบ "+money(z.budget)+" • จ่ายแล้ว "+money(z.paid)+" • รอเบิก "+money(Math.max(num(z.reserved)-addBack,0))+" • พร้อมใช้ "+money(num(z.available)+addBack):""};f.onchange=show;show();
+        };
+        const fillActs=(preferredAct="",preferredFund="")=>{
+          const xs=ctx.activities.filter(z=>z.projectId===p.value);
+          a.innerHTML=xs.map(z=>`<option value="${z.id}">${esc(z.code?z.code+" - ":"")}${esc(z.name)}</option>`).join("");
+          if(preferredAct&&xs.some(z=>z.id===preferredAct))a.value=preferredAct;
+          fillFunds(preferredFund);
+        };
+        p.onchange=()=>fillActs();a.onchange=()=>fillFunds();
+        fillActs(rq.activityId,rq.fundType);
+        $("#addBillBtn").onclick=()=>addBillRow();
+        (detail.items||[]).forEach(z=>addBillRow(z.description,z.amount));
+        if(!(detail.items||[]).length)addBillRow();
+        lucide.createIcons();
+      },
+      preConfirm:()=>{
+        const items=$$(".bill-row",$("#billRows")).map(row=>({description:row.querySelector(".bill-desc").value.trim(),amount:num(row.querySelector(".bill-amount").value)})).filter(z=>z.description&&z.amount>0);
+        const fund=ctx.funds.find(z=>z.activityId===$("#rqActivity").value&&z.fundType===$("#rqFund").value);
+        const total=items.reduce((s,z)=>s+z.amount,0);
+        const addBack=($("#rqActivity").value===rq.activityId&&$("#rqFund").value===rq.fundType)?num(rq.totalAmount):0;
+        if(!$("#rqActivity").value)return Swal.showValidationMessage("กรุณาเลือกกิจกรรม");
+        if(!fund)return Swal.showValidationMessage("กิจกรรมนี้ไม่มีประเภทเงินที่สามารถเบิกได้");
+        if(!$("#rqStart").value||!$("#rqEnd").value||$("#rqEnd").value<$("#rqStart").value)return Swal.showValidationMessage("กรุณาตรวจช่วงวันที่ดำเนินกิจกรรม");
+        if(!items.length)return Swal.showValidationMessage("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
+        if(total>num(fund.available)+addBack)return Swal.showValidationMessage("ยอดขอเบิกเกินเงินพร้อมใช้ "+money(num(fund.available)+addBack));
+        return{id:rq.id,action:"admin_edit",projectId:$("#rqProject").value,activityId:$("#rqActivity").value,startDate:$("#rqStart").value,endDate:$("#rqEnd").value,details:$("#rqDetails").value.trim(),fundType:$("#rqFund").value,items};
+      }
+    });
+    if(!x.value)return;
+    await api("/api/requests",{method:"PUT",body:JSON.stringify(x.value)});
+    await refreshData();
+    await Swal.fire({icon:"success",title:"แก้ไขรายการขอเบิกแล้ว",timer:1000,showConfirmButton:false});
     requests();
   }catch(e){err(e)}
 }
