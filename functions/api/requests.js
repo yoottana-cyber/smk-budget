@@ -86,6 +86,24 @@ export async function onRequestPost(ctx){
     const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,expenses,fund);
     if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
+    // ถ้ารอบก่อนเขียน Requests สำเร็จ แต่หยุดก่อนเขียน RequestItems ให้กู้รายการเดิมแทนการสร้างซ้ำ
+    const recentCutoff=Date.now()-30*60*1000;
+    const orphan=requests.filter(x=>
+      x.status==="submitted"&&
+      !items.some(i=>i.requestId===x.id)&&
+      (String(x.requesterUsername||"")===String(a.u.username||"")||String(x.requesterUserId||"")===String(a.u.id||""))&&
+      x.projectId===p.id&&x.activityId===act.id&&x.fundType===d.fundType&&
+      x.startDate===d.startDate&&x.endDate===d.endDate&&
+      String(x.details||"").trim()===String(d.details||"").trim()&&
+      Math.abs(amount(x.totalAmount)-total)<0.001&&
+      Number.isFinite(Date.parse(x.createdAt||""))&&Date.parse(x.createdAt)>=recentCutoff
+    ).sort((x,y)=>String(y.createdAt||"").localeCompare(String(x.createdAt||"")))[0];
+    if(orphan){
+      const recoveredAt=new Date().toISOString();
+      await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:orphan.id,description:x.description,amount:x.amount,createdAt:recoveredAt})));
+      await writeAudit(ctx.env,a.u,"RECOVER","request",orphan.id,"กู้คืนรายการบิลของคำขอ "+orphan.requestNo,{requestNo:orphan.requestNo,totalAmount:orphan.totalAmount,fundType:orphan.fundType});
+      return json({ok:true,request:orphan,recovered:true},200);
+    }
     const fy=String(p.fiscalYear||""),maxReq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0),requestNo=await nextDocumentNumber(ctx.env,"request",fy,maxReq),now=new Date().toISOString();
     const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now,requesterUsername:a.u.username};
     const appendResult=await append(ctx.env,"Requests",r);
