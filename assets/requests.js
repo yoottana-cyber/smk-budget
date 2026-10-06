@@ -50,9 +50,9 @@ async function requests(){
         <td>${requestStatusBadge(r.status)}</td>
         <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&r.requesterUserId===state.user.id?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
-      $("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
-      $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-      $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
+      $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
+      $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+      $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
       $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
       $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),requests));
       lucide.createIcons();
@@ -305,11 +305,11 @@ async function procurementQueue(){
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอด</th><th>สถานะ</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td>${requestStatusBadge(r.status)}</td><td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติ"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="btn btn-ghost" data-start="${r.id}">รับดำเนินการ</button>`:""}<button class="btn btn-primary" data-send="${r.id}">ส่งการเงิน</button><button class="btn btn-ghost" data-return="${r.id}">ส่งกลับแก้ไข</button><button class="btn btn-ghost danger" data-reject="${r.id}">ไม่อนุมัติ</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่มีรายการรอพัสดุ</td></tr>'}
       </tbody></table></div></section>`;
-    $("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
-    $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-    $("[data-return]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.return,"return_edit",procurementQueue));
-    $("[data-reject]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.reject,"reject",procurementQueue));
-    $("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
+    $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
+    $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $$("[data-return]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.return,"return_edit",procurementQueue));
+    $$("[data-reject]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.reject,"reject",procurementQueue));
+    $$("[data-start]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.start,"procurement_start"));
     $$("[data-send]").forEach(b=>b.onclick=()=>procurementAction(b.dataset.send,"send_finance"));
     $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,procurementQueue));
     $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),procurementQueue));
@@ -332,12 +332,12 @@ async function financeQueue(){
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติ"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button><button class="btn btn-primary" data-pay="${r.id}" data-total="${r.totalAmount}">ลงจ่ายเงิน</button><button class="btn btn-ghost" data-return-proc="${r.id}">ส่งกลับพัสดุ</button><button class="btn btn-ghost" data-return="${r.id}">ส่งกลับครู</button><button class="btn btn-ghost danger" data-reject="${r.id}">ไม่อนุมัติ</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="6" class="empty">ไม่มีรายการรอการเงิน</td></tr>'}
       </tbody></table></div></section>`;
-    $("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
-    $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-    $("[data-return-proc]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.returnProc,"return_procurement",financeQueue));
-    $("[data-return]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.return,"return_edit",financeQueue));
-    $("[data-reject]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.reject,"reject",financeQueue));
-    $("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
+    $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
+    $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+    $$("[data-return-proc]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.returnProc,"return_procurement",financeQueue));
+    $$("[data-return]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.return,"return_edit",financeQueue));
+    $$("[data-reject]").forEach(b=>b.onclick=()=>workflowDecision(b.dataset.reject,"reject",financeQueue));
+    $$("[data-pay]").forEach(b=>b.onclick=()=>payRequest(b.dataset.pay,num(b.dataset.total)));
     $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest,financeQueue));
     $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),financeQueue));
     lucide.createIcons();
