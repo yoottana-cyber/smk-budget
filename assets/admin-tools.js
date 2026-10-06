@@ -21,6 +21,7 @@ async function backupExcel(){
   try{
     if(typeof XLSX==="undefined")throw new Error("ไลบรารี Excel ยังโหลดไม่สำเร็จ");
     const backup=await fetchSystemBackup(),wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{app:backup.app,version:backup.version,createdAt:backup.createdAt}]),"_BackupInfo");
     for(const [sheet,rows] of Object.entries(backup.sheets||{})){
       const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{ข้อมูล:"ไม่มีข้อมูล"}]);
       ws["!cols"]=Object.keys(rows[0]||{ข้อมูล:""}).map(k=>({wch:Math.min(42,Math.max(12,k.length+4))}));
@@ -32,8 +33,21 @@ async function backupExcel(){
 async function restoreBackupFile(file){
   if(!file)return;
   try{
-    const text=await file.text();let backup;
-    try{backup=JSON.parse(text)}catch{throw new Error("ไฟล์ JSON ไม่ถูกต้อง")}
+    let backup;
+    if(/\.xlsx?$/i.test(file.name||"")){
+      if(typeof XLSX==="undefined")throw new Error("ไลบรารี Excel ยังโหลดไม่สำเร็จ");
+      const wb=XLSX.read(await file.arrayBuffer(),{type:"array"}),infoSheet=wb.Sheets["_BackupInfo"],info=infoSheet?XLSX.utils.sheet_to_json(infoSheet,{defval:""})[0]||{}:{};
+      const allowed=["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","DocumentCounters"],sheets={};
+      for(const name of allowed){
+        const ws=wb.Sheets[name];if(!ws){sheets[name]=[];continue}
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
+        sheets[name]=rows.filter(row=>!(Object.keys(row).length===1&&Object.prototype.hasOwnProperty.call(row,"ข้อมูล")));
+      }
+      backup={app:info.app||"smk-budget",version:Number(info.version||1),createdAt:info.createdAt||new Date().toISOString(),sheets};
+    }else{
+      const text=await file.text();
+      try{backup=JSON.parse(text)}catch{throw new Error("ไฟล์ JSON ไม่ถูกต้อง")}
+    }
     if(backup?.app!=="smk-budget"||Number(backup?.version)!==1)throw new Error("ไฟล์นี้ไม่ใช่ Backup ของระบบเวอร์ชันที่รองรับ");
     const q=await Swal.fire({
       icon:"warning",title:"กู้คืนข้อมูลจากไฟล์สำรอง?",
@@ -78,7 +92,7 @@ async function adminTools(){
     <div class="panel-head"><div><h3>เครื่องมือผู้ดูแลระบบ</h3><p class="muted">สำรองข้อมูล กู้คืน และเตรียมปีงบประมาณใหม่</p></div></div>
     <div class="admin-tool-grid">
       <article class="admin-tool-card"><span class="admin-tool-icon"><i data-lucide="database-backup"></i></span><div><h4>สำรองข้อมูล</h4><p>เก็บ Snapshot ข้อมูลระบบก่อนนำเข้า แก้ไขครั้งใหญ่ หรือเปิดปีงบประมาณใหม่</p><div class="actions"><button id="backupJsonBtn" class="btn btn-primary"><i data-lucide="download"></i>Backup JSON</button><button id="backupExcelBtn" class="btn btn-ghost"><i data-lucide="file-spreadsheet"></i>Backup Excel</button></div></div></article>
-      <article class="admin-tool-card"><span class="admin-tool-icon danger"><i data-lucide="rotate-ccw"></i></span><div><h4>กู้คืนข้อมูล</h4><p>กู้คืนจากไฟล์ JSON ที่สร้างโดยระบบ บัญชีผู้ใช้งานจะไม่ถูกเขียนทับ</p><input id="restoreBackupFile" type="file" accept=".json,application/json" hidden><button id="restoreBackupBtn" class="btn btn-ghost danger"><i data-lucide="upload"></i>เลือกไฟล์เพื่อกู้คืน</button></div></article>
+      <article class="admin-tool-card"><span class="admin-tool-icon danger"><i data-lucide="rotate-ccw"></i></span><div><h4>กู้คืนข้อมูล</h4><p>กู้คืนจากไฟล์ JSON หรือ Excel ที่สร้างโดยระบบ บัญชีผู้ใช้งานจะไม่ถูกเขียนทับ</p><input id="restoreBackupFile" type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><button id="restoreBackupBtn" class="btn btn-ghost danger"><i data-lucide="upload"></i>เลือก Backup เพื่อกู้คืน</button></div></article>
       <article class="admin-tool-card"><span class="admin-tool-icon"><i data-lucide="calendar-plus-2"></i></span><div><h4>เปิดปีงบประมาณใหม่</h4><p>คัดลอกโครงสร้างจากปีเดิมโดยไม่คัดลอกคำขอเบิกและรายจ่าย ปีที่มีอยู่: ${years.map(esc).join(", ")||"-"}</p><button id="newFiscalYearBtn" class="btn btn-primary"><i data-lucide="copy-plus"></i>สร้างปีงบประมาณใหม่</button></div></article>
     </div>
   </section>
