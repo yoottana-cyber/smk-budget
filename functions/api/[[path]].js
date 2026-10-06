@@ -139,21 +139,33 @@ export async function onRequest(ctx){
         }
 
         if(sheet==="Expenses"){
-          const g=await listMany(env,["Projects","Activities","Expenses","Requests"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses,reqs=g.Requests;
+          const g=await listMany(env,["Projects","Activities","Expenses","Requests","ActivityFunds"]),projects=g.Projects,acts=g.Activities,exps=g.Expenses,reqs=g.Requests,funds=g.ActivityFunds;
           const prj=projects.find(x=>x.id===d.projectId);if(!prj)return bad("ไม่พบโครงการที่เลือก",409);
+          const old=method==="PUT"?exps.find(x=>x.id===d.id):null;
+          const reqNo=e=>(String(e?.note||"").match(/REQ-\d{4}-\d{4}/)||String(e?.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0]||"";
+          const linkedOf=e=>e?.requestId?reqs.find(r=>r.id===e.requestId)||null:(reqNo(e)?reqs.find(r=>r.requestNo===reqNo(e))||null:null);
+          const linked=old?linkedOf(old):null;
+          if(linked&&(d.projectId!==linked.projectId||d.activityId!==linked.activityId||String(d.fundType||old.fundType||linked.fundType)!==String(linked.fundType||"")))return bad("รายจ่ายนี้เชื่อมกับคำขอเบิก กรุณาแก้โครงการ กิจกรรม หรือประเภทเงินจากหน้าคำขอเบิก",409);
+          if(linked&&amount(d.amount)>amount(linked.totalAmount))return bad("ยอดจ่ายจริงต้องไม่เกินยอดขอเบิก "+amount(linked.totalAmount).toLocaleString("th-TH")+" บาท",409);
           if(method==="POST"&&!String(d.docNo||"").trim()){
             const sameYearIds=new Set(projects.filter(p=>String(p.fiscalYear||"")===String(prj.fiscalYear||"")).map(p=>p.id));
             const maxDoc=exps.filter(e=>sameYearIds.has(e.projectId)).reduce((m,e)=>{const x=String(e.docNo||"").trim().match(/^บจ\.\s*(\d+)$/);return x?Math.max(m,Number(x[1])||0):m},0);
             d.docNo="บจ."+(maxDoc+1);
           }
           if(amount(d.amount)<=0)return bad("จำนวนเงินต้องมากกว่า 0");
-          const otherProjectSpent=exps.filter(x=>x.projectId===d.projectId && x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
+          if(!d.activityId)return bad("กรุณาเลือกกิจกรรม",409);
+          const act=acts.find(x=>x.id===d.activityId);if(!act||act.projectId!==d.projectId)return bad("กิจกรรมไม่ตรงกับโครงการ",409);
+          const fundType=String(d.fundType||linked?.fundType||old?.fundType||"");
+          const fund=funds.find(x=>x.activityId===d.activityId&&x.fundType===fundType&&amount(x.budget)>0);if(!fund)return bad("กรุณาเลือกประเภทเงินที่มีงบในกิจกรรมนี้",409);
+          const otherProjectSpent=exps.filter(x=>x.projectId===d.projectId&&x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
           if(otherProjectSpent+amount(d.amount)>amount(prj.budget))return bad(`รายการนี้ทำให้รายจ่ายเกินงบโครงการ เหลืองบ ${Math.max(amount(prj.budget)-otherProjectSpent,0).toLocaleString("th-TH")} บาท`,409);
-          if(d.activityId){
-            const act=acts.find(x=>x.id===d.activityId);if(!act||act.projectId!==d.projectId)return bad("กิจกรรมไม่ตรงกับโครงการ",409);
-            const otherActivitySpent=exps.filter(x=>x.activityId===d.activityId && x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
-            if(otherActivitySpent+amount(d.amount)>amount(act.budget))return bad(`รายการนี้ทำให้รายจ่ายเกินงบกิจกรรม เหลืองบ ${Math.max(amount(act.budget)-otherActivitySpent,0).toLocaleString("th-TH")} บาท`,409);
-          }
+          const otherActivitySpent=exps.filter(x=>x.activityId===d.activityId&&x.id!==d.id).reduce((s,x)=>s+amount(x.amount),0);
+          if(otherActivitySpent+amount(d.amount)>amount(act.budget))return bad(`รายการนี้ทำให้รายจ่ายเกินงบกิจกรรม เหลืองบ ${Math.max(amount(act.budget)-otherActivitySpent,0).toLocaleString("th-TH")} บาท`,409);
+          const expenseFund=e=>e.fundType||linkedOf(e)?.fundType||"";
+          const otherFundSpent=exps.filter(x=>x.activityId===d.activityId&&x.id!==d.id&&expenseFund(x)===fundType).reduce((s,x)=>s+amount(x.amount),0);
+          const pending=reqs.filter(x=>x.activityId===d.activityId&&x.fundType===fundType&&["submitted","procurement","finance"].includes(x.status)).reduce((s,x)=>s+amount(x.totalAmount),0);
+          if(otherFundSpent+pending+amount(d.amount)>amount(fund.budget))return bad(`รายการนี้ทำให้งบประเภทเงินติดลบ เหลือพร้อมใช้ ${Math.max(amount(fund.budget)-otherFundSpent-pending,0).toLocaleString("th-TH")} บาท`,409);
+          d.fundType=fundType;d.requestId=linked?.id||"";
         }
 
         if(method==="POST"){const row={...d,createdAt:now,updatedAt:now,...(sheet==="Expenses"?{createdBy:a.u.username}:{})};await append(env,sheet,row);return json({ok:true,row},201)}
