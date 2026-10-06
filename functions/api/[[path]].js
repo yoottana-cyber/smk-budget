@@ -182,8 +182,27 @@ export async function onRequest(ctx){
       if(method==="DELETE"){
         const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
         const id=new URL(ctx.request.url).searchParams.get("id");if(!id)return bad("ไม่พบรหัสข้อมูล");
-        if(sheet==="Projects"){const g=await listMany(env,["Activities","Expenses"]),as=g.Activities,es=g.Expenses;if(as.some(x=>x.projectId===id)||es.some(x=>x.projectId===id))return bad("โครงการนี้มีข้อมูลกิจกรรมหรือรายจ่ายอยู่",409)}
-        if(sheet==="Activities"){const es=await list(env,"Expenses");if(es.some(x=>x.activityId===id))return bad("กิจกรรมนี้มีรายจ่ายอยู่",409)}
+        if(sheet==="Projects"){
+          const g=await listMany(env,["Activities","Expenses","Requests","ProjectMeta"]),as=g.Activities,es=g.Expenses,rs=g.Requests,ms=g.ProjectMeta;
+          if(as.some(x=>x.projectId===id)||es.some(x=>x.projectId===id)||rs.some(x=>x.projectId===id))return bad("โครงการนี้มีข้อมูลกิจกรรม รายจ่าย หรือคำขอเบิกอยู่",409);
+          const meta=ms.find(x=>x.projectId===id);if(meta)await del(env,"ProjectMeta",meta.id);
+        }
+        if(sheet==="Activities"){
+          const g=await listMany(env,["Expenses","Requests","ActivityFunds"]),es=g.Expenses,rs=g.Requests,fs=g.ActivityFunds;
+          if(es.some(x=>x.activityId===id)||rs.some(x=>x.activityId===id))return bad("กิจกรรมนี้มีรายจ่ายหรือคำขอเบิกอยู่",409);
+          for(const f of fs.filter(x=>x.activityId===id))await del(env,"ActivityFunds",f.id);
+        }
+        if(sheet==="Expenses"){
+          const exps=await list(env,"Expenses"),row=exps.find(x=>x.id===id);
+          if(row){
+            const reqs=await list(env,"Requests"),no=(String(row.note||"").match(/REQ-\d{4}-\d{4}/)||String(row.description||"").match(/REQ-\d{4}-\d{4}/)||[])[0],linked=(row.requestId?reqs.find(x=>x.id===row.requestId):null)||(no?reqs.find(x=>x.requestNo===no):null);
+            if(linked){
+              const requestRows=await listRows(env,"Requests"),itemRows=await listRows(env,"RequestItems"),rr=requestRows.find(x=>x.id===linked.id),items=itemRows.filter(x=>x.requestId===linked.id),blank=x=>Object.fromEntries(Object.keys(x).filter(k=>k!=="__row").map(k=>[k,""]));
+              if(items.length)await batchUpdateRows(env,"RequestItems",items.map(x=>({__row:x.__row,...blank(x)})));
+              if(rr)await batchUpdateRows(env,"Requests",[{__row:rr.__row,...blank(rr)}]);
+            }
+          }
+        }
         await del(env,sheet,id);return json({ok:true});
       }
     }
