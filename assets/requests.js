@@ -250,6 +250,53 @@ async function deleteRequest(r,refreshFn=requests){
     refreshFn();
   }catch(e){err(e)}
 }
+
+async function workflowDecision(id,action,refreshFn){
+  const labels={
+    return_edit:{title:"ส่งกลับแก้ไข",prompt:"ระบุเหตุผลที่ส่งกลับให้ผู้ขอเบิกแก้ไข",confirm:"ส่งกลับแก้ไข"},
+    return_procurement:{title:"ส่งกลับงานพัสดุ",prompt:"ระบุเหตุผลที่ส่งกลับให้พัสดุดำเนินการ",confirm:"ส่งกลับพัสดุ"},
+    reject:{title:"ไม่อนุมัติคำขอ",prompt:"ระบุเหตุผลที่ไม่อนุมัติ",confirm:"ยืนยันไม่อนุมัติ"}
+  },x=labels[action]||labels.return_edit;
+  const r=await Swal.fire({
+    icon:action==="reject"?"warning":"question",
+    title:x.title,
+    input:"textarea",
+    inputLabel:x.prompt,
+    inputPlaceholder:"กรุณาระบุเหตุผล...",
+    inputAttributes:{maxlength:"1000"},
+    showCancelButton:true,
+    confirmButtonText:x.confirm,
+    cancelButtonText:"ยกเลิก",
+    confirmButtonColor:action==="reject"?"#dc2626":"#0f766e",
+    inputValidator:v=>!String(v||"").trim()?"กรุณาระบุเหตุผล":undefined
+  });
+  if(!r.isConfirmed)return;
+  try{
+    await api("/api/requests",{method:"PUT",body:JSON.stringify({id,action,reason:String(r.value||"").trim()})});
+    await refreshData();
+    await Swal.fire({icon:"success",title:"ดำเนินการเรียบร้อย",timer:900,showConfirmButton:false});
+    refreshFn();
+  }catch(e){err(e)}
+}
+async function requestTimeline(id){
+  try{
+    const d=await api("/api/requests?scope=detail&id="+encodeURIComponent(id)),r=d.request,logs=d.timeline||[];
+    const actionLabels={CREATE:"ส่งคำขอ",UPDATE:"แก้ไข",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",RETURN:"ส่งกลับ",REJECT:"ไม่อนุมัติ",RESUBMIT:"ส่งใหม่",DELETE:"ลบ"};
+    const statusLabels=Object.fromEntries(Object.entries(REQUEST_STATUS).map(([k,v])=>[k,v[0]]));
+    const rows=logs.map(x=>{
+      let detail={};try{detail=JSON.parse(x.details||"{}")}catch{}
+      const reason=detail.reason?'<div class="timeline-reason"><strong>เหตุผล:</strong> '+esc(detail.reason)+'</div>':"";
+      const move=(detail.from||detail.to)?'<small>'+ (detail.from?esc(statusLabels[detail.from]||detail.from):"") +(detail.from&&detail.to?" → ":"")+(detail.to?esc(statusLabels[detail.to]||detail.to):"")+'</small>':"";
+      const when=x.createdAt?new Date(x.createdAt).toLocaleString("th-TH",{dateStyle:"medium",timeStyle:"short"}):"-";
+      return '<div class="request-timeline-item"><div class="request-timeline-dot"></div><div class="request-timeline-body"><div class="request-timeline-head"><strong>'+esc(actionLabels[x.action]||x.action||"รายการ")+'</strong><span>'+esc(when)+'</span></div><div>'+esc(x.summary||"")+'</div>'+move+'<div class="muted">โดย '+esc(x.displayName||x.username||"-")+'</div>'+reason+'</div></div>';
+    }).join("");
+    await Swal.fire({
+      title:"ประวัติ "+esc(r.requestNo),
+      html:'<div style="text-align:left"><div style="margin-bottom:12px">'+requestStatusBadge(r.status)+' <strong style="margin-left:6px">'+esc(r.projectName||"")+'</strong><br><small class="muted">'+esc(r.activityName||"")+'</small></div><div class="request-timeline">'+(rows||'<div class="empty">ยังไม่มีประวัติขั้นตอน</div>')+'</div></div>',
+      width:760,confirmButtonText:"ปิด",confirmButtonColor:"#0f766e"
+    });
+  }catch(e){err(e)}
+}
 async function procurementQueue(){
   if(!hasAnyRole(["admin","procurement"])){state.route="dashboard";return render()}
   try{
