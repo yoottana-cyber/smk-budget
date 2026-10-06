@@ -1,5 +1,5 @@
 
-import {ensureExtra,listRowsMany,bulkAppend,batchUpdateRows,auth,json,bad,amount,readBody} from "../../src/budget-db.js";
+import {ensureExtra,listRowsMany,bulkAppend,batchUpdateRows,auth,json,bad,amount,readBody,writeAudit} from "../../src/budget-db.js";
 
 const clean=s=>String(s??"").trim();
 const keyOf=(fy,division,code)=>[fy,division,code].map(clean).join("|").toLowerCase();
@@ -82,6 +82,7 @@ export async function onRequestPost(ctx){
     if(newFunds.length)jobs.push(bulkAppend(ctx.env,"ActivityFunds",newFunds));
     if(updFunds.length)jobs.push(batchUpdateRows(ctx.env,"ActivityFunds",updFunds));
     await Promise.all(jobs);
+    await writeAudit(ctx.env,a.u,"IMPORT","projects","excel","นำเข้าโครงการจาก Excel",{projectCreated,projectUpdated,activityCreated,activityUpdated,fundUpdated});
 
     return json({ok:true,projectCreated,projectUpdated,activityCreated,activityUpdated,fundUpdated});
   }catch(e){
