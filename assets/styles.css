@@ -141,3 +141,19 @@ th{font-size:.82rem;color:#64748b;background:#f8fafc}td{font-size:.9rem}tr:last-
 .btn.danger,.btn-ghost.danger{color:#b91c1c;border-color:#fecaca;background:#fff7f7}
 .btn.danger:hover,.btn-ghost.danger:hover{background:#fee2e2}
 @media(max-width:760px){.request-timeline-head{align-items:flex-start;flex-direction:column;gap:2px}}
+
+.health-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;margin-bottom:18px;border-radius:18px;border:1px solid var(--line);background:#fff}
+.health-hero-main{display:flex;align-items:center;gap:14px}.health-hero h3{margin:2px 0 3px;font-size:1.25rem}.health-hero p{margin:0}
+.health-hero-icon{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;flex:none}.health-hero-icon svg{width:25px;height:25px}
+.health-healthy{border-color:#bbf7d0;background:#f0fdf4}.health-healthy .health-hero-icon{background:#dcfce7;color:#15803d}
+.health-warning{border-color:#fde68a;background:#fffbeb}.health-warning .health-hero-icon{background:#fef3c7;color:#b45309}
+.health-critical{border-color:#fecaca;background:#fef2f2}.health-critical .health-hero-icon{background:#fee2e2;color:#b91c1c}
+.health-stats .stat-card:nth-child(1) .stat-icon{background:#fef2f2;color:#b91c1c}
+.health-stats .stat-card:nth-child(2) .stat-icon{background:#fffbeb;color:#b45309}
+.health-stats .stat-card:nth-child(3) .stat-icon{background:#eff6ff;color:#1d4ed8}
+.health-stats .stat-card:nth-child(4) .stat-icon{background:#f0fdfa;color:#0f766e}
+.health-counts{display:flex;flex-wrap:wrap;gap:10px}.health-counts span{padding:9px 12px;border:1px solid #e2e8f0;border-radius:999px;background:#f8fafc;color:#475569}.health-counts strong{color:#0f172a}
+.health-severity{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:.78rem;font-weight:700;white-space:nowrap}
+.health-severity-critical{background:#fee2e2;color:#b91c1c}.health-severity-warning{background:#fef3c7;color:#a16207}.health-severity-info{background:#dbeafe;color:#1d4ed8}
+.health-fixable{color:#0f766e;font-weight:600}.health-ok-icon{width:18px;height:18px;color:#16a34a}.health-issue-active td{background:#fffdf8}
+@media(max-width:760px){.health-hero{align-items:flex-start;flex-direction:column}.health-hero .actions{width:100%;justify-content:flex-start}.health-counts span{font-size:.84rem}}
