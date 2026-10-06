@@ -8,7 +8,7 @@ const ROLE_LABELS={admin:"ผู้ดูแลระบบ",planner:"งาน�
 const userRoles=u=>Array.isArray(u?.roles)&&u.roles.length?u.roles:(u?.role?[u.role]:[]);
 const hasRole=(role,u=state.user)=>userRoles(u).includes(role);
 const hasAnyRole=(roles,u=state.user)=>roles.some(role=>hasRole(role,u));
-const canEdit=()=>hasAnyRole(["admin","planner","finance"]), canAdmin=()=>hasRole("admin");
+const canPlanEdit=()=>hasAnyRole(["admin","planner"]), canFinanceEdit=()=>hasAnyRole(["admin","finance"]), canAdmin=()=>hasRole("admin");
 
 async function api(path,opt={}){
   const headers={"content-type":"application/json",...(opt.headers||{})};
@@ -182,7 +182,7 @@ function dashboard(){
   state.charts.f=new Chart($("#fundChart"),{type:"doughnut",data:{labels:fundRows.map(x=>x.label),datasets:[{data:fundRows.map(x=>x.budget),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:"58%",plugins:{legend:{position:"bottom"}}}});
   state.charts.d=new Chart($("#divisionChart"),{type:"bar",data:{labels:divisionRows.map(x=>x.division),datasets:fundOrder.map((type,i)=>({label:fundLabels[type],data:divisionRows.map(x=>x.byFund.find(f=>f.type===type)?.budget||0),backgroundColor:["rgba(15,118,110,.76)","rgba(37,99,235,.76)","rgba(217,119,6,.76)","rgba(124,58,237,.76)"][i],borderRadius:4}))},options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}},plugins:{legend:{position:"bottom"}}}});
 }
-function panel(head,button,cols){return`<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหา...">${canEdit()?`<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>${button}</button>`:""}</div><div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody id="rows"></tbody></table></div></section>`}
+function panel(head,button,cols,allowAdd=false){return`<section class="panel"><div class="toolbar"><input id="search" class="search" placeholder="ค้นหา...">${allowAdd?`<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>${button}</button>`:""}</div><div class="table-wrap"><table><thead><tr>${cols}</tr></thead><tbody id="rows"></tbody></table></div></section>`}
 function projects(){
   const {projects:ps,activities:as,expenses:ex}=filtered();
   const projectIds=new Set(ps.map(p=>p.id));
@@ -202,12 +202,12 @@ function projects(){
   $("#content").innerHTML=`<section class="panel">
     <div class="toolbar">
       <input id="search" class="search" placeholder="ค้นหาโครงการ กิจกรรม หรือผู้รับผิดชอบ">
-      ${canEdit()?'<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>เพิ่มโครงการ</button>':""}
+      ${canPlanEdit()?'<button id="addBtn" class="btn btn-primary"><i data-lucide="plus"></i>เพิ่มโครงการ</button>':""}
     </div>
     <div id="divisionTabs" class="division-tabs"></div>
     <div id="projectGroups"></div>
   </section>`;
-  if(canEdit())$("#addBtn").onclick=()=>projectForm();
+  if(canPlanEdit())$("#addBtn").onclick=()=>projectForm();
 
   const paintTabs=()=>{
     $("#divisionTabs").innerHTML=allDivisions.length?allDivisions.map(division=>{
@@ -248,7 +248,7 @@ function projects(){
                 <span>คงเหลือ <strong class="${s.balance<0?"negative":""}">${money(s.balance)}</strong></span>
                 <span class="badge ${p.status==="ปิดโครงการ"?"gray":""}">${esc(p.status||"ดำเนินการ")}</span>
                 <div class="actions">
-                  ${canEdit()?`<button class="icon-btn" data-add-activity="${p.id}" title="เพิ่มกิจกรรม"><i data-lucide="list-plus"></i></button><button class="icon-btn" data-pe="${p.id}" title="แก้ไขโครงการ"><i data-lucide="pencil"></i></button>`:""}
+                  ${canPlanEdit()?`<button class="icon-btn" data-add-activity="${p.id}" title="เพิ่มกิจกรรม"><i data-lucide="list-plus"></i></button><button class="icon-btn" data-pe="${p.id}" title="แก้ไขโครงการ"><i data-lucide="pencil"></i></button>`:""}
                   ${canAdmin()?`<button class="icon-btn" data-pd="${p.id}" title="ลบโครงการ"><i data-lucide="trash-2"></i></button>`:""}
                 </div>
               </div>
@@ -260,7 +260,7 @@ function projects(){
               </button>
               <div class="activity-collapse ${openActivities.has(p.id)?"open":""}">
                 ${acts.length?`<div class="table-wrap activity-table"><table><thead><tr><th>รหัส</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class="num">งบดำเนินงาน</th><th class="num">ใช้ไป</th><th class="num">คงเหลือ</th><th>สถานะ</th><th></th></tr></thead><tbody>
-                  ${acts.map(a=>{const x=astat(a,ex);return`<tr><td><strong>${esc(a.code||"-")}</strong></td><td>${esc(a.name)}</td><td>${esc(a.owner||"-")}</td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num ${x.balance<0?"negative":""}">${money(x.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-ae="${a.id}" title="แก้ไขกิจกรรม"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-ad="${a.id}" title="ลบกิจกรรม"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join("")}
+                  ${acts.map(a=>{const x=astat(a,ex);return`<tr><td><strong>${esc(a.code||"-")}</strong></td><td>${esc(a.name)}</td><td>${esc(a.owner||"-")}</td><td class="num">${money(x.budget)}</td><td class="num">${money(x.spent)}</td><td class="num ${x.balance<0?"negative":""}">${money(x.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canPlanEdit()?`<button class="icon-btn" data-ae="${a.id}" title="แก้ไขกิจกรรม"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-ad="${a.id}" title="ลบกิจกรรม"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join("")}
                 </tbody></table></div>`:'<div class="empty activity-empty">ยังไม่มีกิจกรรมในโครงการนี้</div>'}
               </div>
             </div>
@@ -286,8 +286,8 @@ async function projectForm(p=null){
   if(!r.value)return;try{await api("/api/projects",{method:p?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData();Swal.fire({icon:"success",title:"บันทึกแล้ว",timer:800,showConfirmButton:false})}catch(e){err(e)}
 }
 function activities(){
-  const {activities:as,expenses:ex}=filtered(),pm=Object.fromEntries(state.data.projects.map(p=>[p.id,p]));$("#content").innerHTML=panel("","เพิ่มกิจกรรม","<th>โครงการ</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class='num'>งบดำเนินงาน</th><th class='num'>ใช้ไป</th><th class='num'>คงเหลือ</th><th>สถานะ</th><th></th>");if(canEdit())$("#addBtn").onclick=()=>activityForm();
-  const paint=()=>{const q=$("#search").value.toLowerCase(),rs=as.filter(a=>`${a.code} ${a.name} ${a.owner} ${pm[a.projectId]?.name||""}`.toLowerCase().includes(q));$("#rows").innerHTML=rs.length?rs.map(a=>{const s=astat(a,ex);return`<tr><td>${esc(pm[a.projectId]?.code||"-")}<br><small>${esc(pm[a.projectId]?.name||"")}</small></td><td><strong>${esc(a.code)}</strong><br>${esc(a.name)}</td><td>${esc(a.owner)}</td><td class="num">${money(s.budget)}</td><td class="num">${money(s.spent)}</td><td class="num ${s.balance<0?"negative":""}">${money(s.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-e="${a.id}"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${a.id}"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join(""):`<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>`;$$("[data-e]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.e)));$$("[data-d]").forEach(b=>b.onclick=()=>remove("activities",b.dataset.d));lucide.createIcons()};$("#search").oninput=paint;paint()
+  const {activities:as,expenses:ex}=filtered(),pm=Object.fromEntries(state.data.projects.map(p=>[p.id,p]));$("#content").innerHTML=panel("","เพิ่มกิจกรรม","<th>โครงการ</th><th>กิจกรรม</th><th>ผู้รับผิดชอบ</th><th class='num'>งบดำเนินงาน</th><th class='num'>ใช้ไป</th><th class='num'>คงเหลือ</th><th>สถานะ</th><th></th>",canPlanEdit());if(canPlanEdit())$("#addBtn").onclick=()=>activityForm();
+  const paint=()=>{const q=$("#search").value.toLowerCase(),rs=as.filter(a=>`${a.code} ${a.name} ${a.owner} ${pm[a.projectId]?.name||""}`.toLowerCase().includes(q));$("#rows").innerHTML=rs.length?rs.map(a=>{const s=astat(a,ex);return`<tr><td>${esc(pm[a.projectId]?.code||"-")}<br><small>${esc(pm[a.projectId]?.name||"")}</small></td><td><strong>${esc(a.code)}</strong><br>${esc(a.name)}</td><td>${esc(a.owner)}</td><td class="num">${money(s.budget)}</td><td class="num">${money(s.spent)}</td><td class="num ${s.balance<0?"negative":""}">${money(s.balance)}</td><td><span class="badge ${a.status==="เสร็จสิ้น"?"gray":""}">${esc(a.status||"ดำเนินการ")}</span></td><td><div class="actions">${canPlanEdit()?`<button class="icon-btn" data-e="${a.id}"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${a.id}"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`}).join(""):`<tr><td colspan="8" class="empty">ไม่พบข้อมูล</td></tr>`;$$("[data-e]").forEach(b=>b.onclick=()=>activityForm(state.data.activities.find(x=>x.id===b.dataset.e)));$$("[data-d]").forEach(b=>b.onclick=()=>remove("activities",b.dataset.d));lucide.createIcons()};$("#search").oninput=paint;paint()
 }
 async function activityForm(a=null,defaultProjectId=""){
   const ps=state.data.projects;if(!ps.length)return Swal.fire({icon:"info",title:"กรุณาเพิ่มโครงการก่อน"});const opts=ps.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
@@ -297,11 +297,11 @@ async function activityForm(a=null,defaultProjectId=""){
 function expenses(){
   const {expenses:es}=filtered(),pm=Object.fromEntries(state.data.projects.map(p=>[p.id,p])),am=Object.fromEntries(state.data.activities.map(a=>[a.id,a]));
   const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่น ๆ"};
-  $("#content").innerHTML=panel("","เพิ่มรายจ่าย","<th>วันที่</th><th>เอกสาร</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th>รายการ</th><th>หมวด</th><th>ผู้รับเงิน</th><th class='num'>จำนวนเงิน</th><th></th>");
-  if(canEdit())$("#addBtn").onclick=()=>expenseForm();
+  $("#content").innerHTML=panel("","เพิ่มรายจ่าย","<th>วันที่</th><th>เอกสาร</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th>รายการ</th><th>หมวด</th><th>ผู้รับเงิน</th><th class='num'>จำนวนเงิน</th><th></th>",canFinanceEdit());
+  if(canFinanceEdit())$("#addBtn").onclick=()=>expenseForm();
   const paint=()=>{
     const q=$("#search").value.toLowerCase(),rs=[...es].sort((a,b)=>String(b.date).localeCompare(String(a.date))).filter(e=>`${e.docNo} ${e.description} ${e.payee} ${e.category} ${fundLabels[e.fundType]||e.fundType||""}`.toLowerCase().includes(q));
-    $("#rows").innerHTML=rs.length?rs.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.docNo)}</td><td>${esc(pm[e.projectId]?.code||"-")}<br><small>${esc(am[e.activityId]?.name||"-")}</small></td><td>${e.fundType?`<span class="badge gray">${esc(fundLabels[e.fundType]||e.fundType)}</span>`:'<span class="badge request-warning">ยังไม่ระบุ</span>'}${e.requestId?'<br><small>เชื่อมคำขอเบิก</small>':""}</td><td>${esc(e.description)}</td><td><span class="badge gray">${esc(e.category||"-")}</span></td><td>${esc(e.payee||"-")}</td><td class="num"><strong>${money(e.amount)}</strong></td><td><div class="actions">${canEdit()?`<button class="icon-btn" data-e="${e.id}" title="แก้ไข"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${e.id}" title="ลบ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="9" class="empty">ไม่พบข้อมูล</td></tr>';
+    $("#rows").innerHTML=rs.length?rs.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.docNo)}</td><td>${esc(pm[e.projectId]?.code||"-")}<br><small>${esc(am[e.activityId]?.name||"-")}</small></td><td>${e.fundType?`<span class="badge gray">${esc(fundLabels[e.fundType]||e.fundType)}</span>`:'<span class="badge request-warning">ยังไม่ระบุ</span>'}${e.requestId?'<br><small>เชื่อมคำขอเบิก</small>':""}</td><td>${esc(e.description)}</td><td><span class="badge gray">${esc(e.category||"-")}</span></td><td>${esc(e.payee||"-")}</td><td class="num"><strong>${money(e.amount)}</strong></td><td><div class="actions">${canFinanceEdit()?`<button class="icon-btn" data-e="${e.id}" title="แก้ไข"><i data-lucide="pencil"></i></button>`:""}${canAdmin()?`<button class="icon-btn" data-d="${e.id}" title="ลบ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="9" class="empty">ไม่พบข้อมูล</td></tr>';
     $$("[data-e]").forEach(b=>b.onclick=()=>expenseForm(state.data.expenses.find(x=>x.id===b.dataset.e)));
     $$("[data-d]").forEach(b=>b.onclick=()=>remove("expenses",b.dataset.d));
     lucide.createIcons();
