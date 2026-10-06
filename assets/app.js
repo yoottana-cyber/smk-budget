@@ -15,6 +15,7 @@ function requestStatusLabel(path,method="GET"){
   const m=String(method||"GET").toUpperCase(),p=String(path||"");
   if(p.includes("/login"))return"กำลังเข้าสู่ระบบ...";
   if(p.includes("/import-projects"))return"กำลังนำเข้าข้อมูล...";
+  if(p.includes("/data-health"))return m==="GET"?"กำลังตรวจสุขภาพข้อมูล...":"กำลังซ่อมข้อมูล...";
   if(p.includes("/data-integrity"))return"กำลังตรวจสอบข้อมูล...";
   if(p.includes("/audit-log"))return"กำลังโหลดประวัติ...";
   if(p.includes("/settings"))return m==="GET"?"กำลังโหลดการตั้งค่า...":"กำลังบันทึกการตั้งค่า...";
@@ -99,14 +100,14 @@ async function login(e){
 }
 function logout(show=true){sessionStorage.removeItem("budget_token");state.token="";state.user=null;state.integrityReady=false;state.integrityReport=null;showLogin();if(show)Swal.fire({icon:"success",title:"ออกจากระบบแล้ว",timer:900,showConfirmButton:false})}
 function showLogin(){$("#loginView").classList.remove("hidden");$("#appView").classList.add("hidden")}
-function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
+function showApp(){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");const roles=userRoles(state.user);$("#userBox").innerHTML=`<strong>${esc(state.user.displayName)}</strong><span>${roles.map(r=>ROLE_LABELS[r]||r).join(" • ")}</span>`;$("#usersNav")?.classList.toggle("hidden",!hasRole("admin"));$("#settingsNav")?.classList.toggle("hidden",!hasRole("admin"));$("#healthNav")?.classList.toggle("hidden",!hasRole("admin"));$("#auditNav")?.classList.toggle("hidden",!hasRole("admin"));$("#importNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner"]));$("#requestsNav")?.classList.toggle("hidden",!hasAnyRole(["admin","planner","teacher","procurement","finance"]));$("#procurementNav")?.classList.toggle("hidden",!hasAnyRole(["admin","procurement"]));$("#financeNav")?.classList.toggle("hidden",!hasAnyRole(["admin","finance"]));lucide.createIcons()}
 async function refreshData(){try{if(hasRole("admin")&&!state.integrityReady){try{state.integrityReport=await api("/api/data-integrity",{method:"POST"})}catch{}state.integrityReady=true}state.data=await api("/api/data");years();render()}catch(e){err(e)}}
 function years(){const ys=[...new Set(state.data.projects.map(x=>x.fiscalYear).filter(Boolean))].sort().reverse();$("#fiscalYearFilter").innerHTML=`<option value="">ทุกปีงบประมาณ</option>`+ys.map(y=>`<option ${y===state.fiscalYear?"selected":""}>${esc(y)}</option>`).join("")}
 function filtered(){const projects=state.fiscalYear?state.data.projects.filter(p=>p.fiscalYear===state.fiscalYear):state.data.projects,ids=new Set(projects.map(p=>p.id));const activities=state.data.activities.filter(a=>ids.has(a.projectId)),aids=new Set(activities.map(a=>a.id));const expenses=state.data.expenses.filter(e=>ids.has(e.projectId)&&(!e.activityId||aids.has(e.activityId)));return{projects,activities,expenses}}
 function pstat(p,exps=state.data.expenses){const spent=exps.filter(e=>e.projectId===p.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(p.budget),spent,balance:num(p.budget)-spent}}
 function astat(a,exps=state.data.expenses){const spent=exps.filter(e=>e.activityId===a.id).reduce((s,e)=>s+num(e.amount),0);return{budget:num(a.budget),spent,balance:num(a.budget)-spent}}
 function destroy(){Object.values(state.charts).forEach(c=>c?.destroy());state.charts={}}
-function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
+function render(){destroy();$("#pageTitle").textContent=({dashboard:"ภาพรวม",projects:"โครงการ",activities:"กิจกรรม",import:"นำเข้าโครงการ",requests:"ขอเบิกเงิน",procurement:"งานพัสดุ",financeQueue:"รอจ่ายเงิน",expenses:"รายจ่าย",users:"จัดการผู้ใช้งาน",settings:"ตั้งค่าระบบ",health:"ตรวจสุขภาพข้อมูล",audit:"ประวัติการใช้งาน"})[state.route];const fn=({dashboard,projects,activities,import:importProjects,requests,procurement:procurementQueue,financeQueue,expenses,users,settings:systemSettings,health:dataHealth,audit:auditLog})[state.route]||dashboard;fn();lucide.createIcons()}
 
 function dashboard(){
   const {projects,activities,expenses}=filtered();
@@ -379,13 +380,69 @@ async function expenseForm(e=null){
   if(!r.value)return;try{await api("/api/expenses",{method:e?"PUT":"POST",body:JSON.stringify(r.value)});await refreshData()}catch(x){err(x)}
 }
 async function remove(type,id){const x=await Swal.fire({icon:"warning",title:"ยืนยันการลบ",text:"ข้อมูลที่ลบไม่สามารถย้อนกลับได้",showCancelButton:true,confirmButtonText:"ลบ",cancelButtonText:"ยกเลิก",confirmButtonColor:"#dc2626"});if(!x.isConfirmed)return;try{await api(`/api/${type}?id=${encodeURIComponent(id)}`,{method:"DELETE"});await refreshData()}catch(e){err(e)}}
+
+function healthStatusMeta(status){
+  if(status==="critical")return{label:"พบปัญหาที่ต้องตรวจสอบ",icon:"circle-alert",cls:"critical"};
+  if(status==="warning")return{label:"พบรายการที่ควรตรวจสอบ",icon:"triangle-alert",cls:"warning"};
+  return{label:"ข้อมูลปกติ",icon:"circle-check-big",cls:"healthy"};
+}
+function renderDataHealthReport(report){
+  const meta=healthStatusMeta(report.status),issues=report.issues||[],counts=report.counts||{},totals=report.totals||{},order={critical:0,warning:1,info:2};
+  $("#content").innerHTML=`<section class="health-hero health-${meta.cls}">
+    <div class="health-hero-main"><span class="health-hero-icon"><i data-lucide="${meta.icon}"></i></span><div><p class="eyebrow">DATA HEALTH</p><h3>${esc(meta.label)}</h3><p class="muted">ตรวจล่าสุด ${new Date(report.checkedAt).toLocaleString("th-TH",{dateStyle:"medium",timeStyle:"short"})}</p></div></div>
+    <div class="actions"><button id="healthRefresh" class="btn btn-ghost"><i data-lucide="refresh-cw"></i>ตรวจใหม่</button>${totals.autoFixable?'<button id="healthRepair" class="btn btn-primary"><i data-lucide="wand-sparkles"></i>ซ่อมอัตโนมัติ ('+totals.autoFixable+')</button>':""}</div>
+  </section>
+  <section class="stats-grid health-stats">
+    <article class="stat-card"><span class="stat-icon"><i data-lucide="circle-alert"></i></span><div><small>ปัญหาร้ายแรง</small><strong>${totals.critical||0}</strong></div></article>
+    <article class="stat-card"><span class="stat-icon"><i data-lucide="triangle-alert"></i></span><div><small>ควรตรวจสอบ</small><strong>${totals.warning||0}</strong></div></article>
+    <article class="stat-card"><span class="stat-icon"><i data-lucide="info"></i></span><div><small>ข้อมูลประกอบ</small><strong>${totals.info||0}</strong></div></article>
+    <article class="stat-card"><span class="stat-icon"><i data-lucide="wand-sparkles"></i></span><div><small>ซ่อมอัตโนมัติได้</small><strong>${totals.autoFixable||0}</strong></div></article>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h3>ภาพรวมฐานข้อมูล</h3><p class="muted">ตรวจความสัมพันธ์ระหว่างโครงการ กิจกรรม คำขอเบิก รายการบิล และรายจ่าย</p></div></div>
+    <div class="health-counts"><span><strong>${counts.projects||0}</strong> โครงการ</span><span><strong>${counts.activities||0}</strong> กิจกรรม</span><span><strong>${counts.requests||0}</strong> คำขอเบิก</span><span><strong>${counts.requestItems||0}</strong> รายการบิล</span><span><strong>${counts.expenses||0}</strong> รายจ่าย</span></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h3>ผลการตรวจ</h3><p class="muted">รายการที่มีปัญหาจะแสดงก่อน สามารถกดดูตัวอย่างได้</p></div></div>
+    <div class="table-wrap"><table><thead><tr><th>ระดับ</th><th>รายการตรวจ</th><th>รายละเอียด</th><th class="num">จำนวน</th><th></th></tr></thead><tbody>
+      ${issues.slice().sort((a,b)=>(order[a.severity]??9)-(order[b.severity]??9)||b.count-a.count).map(x=>`<tr class="${x.count?"health-issue-active":""}">
+        <td><span class="health-severity health-severity-${x.severity}">${x.severity==="critical"?"ร้ายแรง":x.severity==="warning"?"ตรวจสอบ":"ข้อมูล"}</span></td>
+        <td><strong>${esc(x.title)}</strong>${x.autoFixable?'<br><small class="health-fixable">ซ่อมอัตโนมัติได้</small>':""}</td>
+        <td>${esc(x.description)}</td><td class="num"><strong>${x.count}</strong></td>
+        <td>${x.count?'<button class="icon-btn" data-health-detail="'+esc(x.key)+'" title="ดูตัวอย่าง"><i data-lucide="search"></i></button>':'<i data-lucide="check" class="health-ok-icon"></i>'}</td>
+      </tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="margin:12px 0 0">ซ่อมอัตโนมัติจะแก้เฉพาะ requestId, fundType และ requesterUsername ที่ระบบยืนยันได้อย่างปลอดภัย รายการที่กระทบยอดเงินหรือเลขเอกสารจะไม่แก้อัตโนมัติ</p>
+  </section>`;
+  $("#healthRefresh").onclick=()=>dataHealth();
+  if($("#healthRepair"))$("#healthRepair").onclick=async()=>{
+    const q=await Swal.fire({icon:"question",title:"ซ่อมข้อมูลอัตโนมัติ?",text:"ระบบจะแก้เฉพาะรายการที่ปลอดภัย และบันทึกลงประวัติการใช้งาน",showCancelButton:true,confirmButtonText:"ซ่อมข้อมูล",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e"});
+    if(!q.isConfirmed)return;
+    try{
+      const x=await api("/api/data-health",{method:"POST",body:JSON.stringify({action:"repair"})}),rr=x.repaired||{};
+      await Swal.fire({icon:"success",title:"ซ่อมข้อมูลเรียบร้อย",html:`<div style="text-align:left">อัปเดตรายจ่าย <strong>${rr.expensesUpdated||0}</strong> รายการ<br>ผูกคำขอ <strong>${rr.linkedExpenses||0}</strong> รายการ<br>เติมประเภทเงิน <strong>${rr.inferredFunds||0}</strong> รายการ<br>เติม Username ผู้ขอ <strong>${rr.requestUsers||0}</strong> รายการ</div>`,confirmButtonColor:"#0f766e"});
+      renderDataHealthReport(x.report);
+    }catch(e){err(e)}
+  };
+  $$("[data-health-detail]").forEach(b=>b.onclick=()=>{
+    const issue=issues.find(x=>x.key===b.dataset.healthDetail);if(!issue)return;
+    const rows=(issue.examples||[]).map(x=>`<tr><td><strong>${esc(x.label||x.id||"-")}</strong><br><small>${esc(x.id||"")}</small></td><td>${esc(x.detail||"-")}</td></tr>`).join("");
+    Swal.fire({title:issue.title,html:`<div style="text-align:left"><p class="muted">${esc(issue.description)}</p><div class="table-wrap"><table><thead><tr><th>รายการ</th><th>รายละเอียด</th></tr></thead><tbody>${rows||'<tr><td colspan="2" class="empty">ไม่พบตัวอย่าง</td></tr>'}</tbody></table></div>${issue.count>(issue.examples||[]).length?'<p class="muted">แสดงตัวอย่างบางส่วนจากทั้งหมด '+issue.count+' รายการ</p>':""}</div>`,width:760,confirmButtonText:"ปิด",confirmButtonColor:"#0f766e"});
+  });
+  lucide.createIcons();
+}
+async function dataHealth(){
+  if(!canAdmin()){state.route="dashboard";return render()}
+  $("#content").innerHTML='<section class="panel"><div class="empty">กำลังตรวจสุขภาพข้อมูล...</div></section>';
+  try{const x=await api("/api/data-health?_="+Date.now());renderDataHealthReport(x.report)}catch(e){err(e)}
+}
 async function auditLog(){
   if(!canAdmin()){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดประวัติการใช้งาน...</div></section>';
   try{
     const data=await api("/api/audit-log?limit=500"),logs=data.logs||[];
-    const actionLabels={CREATE:"เพิ่ม",UPDATE:"แก้ไข",DELETE:"ลบ",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",IMPORT:"นำเข้า",RETURN:"ส่งกลับ",REJECT:"ไม่อนุมัติ",RESUBMIT:"ส่งใหม่"};
-    const entityLabels={request:"คำขอเบิก",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย",user:"ผู้ใช้งาน",settings:"ตั้งค่าระบบ"};
+    const actionLabels={CREATE:"เพิ่ม",UPDATE:"แก้ไข",DELETE:"ลบ",STATUS:"เปลี่ยนสถานะ",PAY:"จ่ายเงิน",IMPORT:"นำเข้า",RETURN:"ส่งกลับ",REJECT:"ไม่อนุมัติ",RESUBMIT:"ส่งใหม่",REPAIR:"ซ่อมข้อมูล"};
+    const entityLabels={request:"คำขอเบิก",projects:"โครงการ",activities:"กิจกรรม",expenses:"รายจ่าย",user:"ผู้ใช้งาน",settings:"ตั้งค่าระบบ",data_health:"ตรวจสุขภาพข้อมูล"};
     const actionOptions=[...new Set(logs.map(x=>x.action).filter(Boolean))];
     $("#content").innerHTML=`<section class="panel">
       <div class="toolbar" style="align-items:flex-end">
