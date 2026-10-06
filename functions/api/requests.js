@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,append,bulkAppend,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
+import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
@@ -85,6 +85,30 @@ export async function onRequestPut(ctx){
     const [requests,items,projects,activities,funds,metas,settings,expenses]=await loadAll(ctx.env);
     const r=requests.find(x=>x.id===d.id);if(!r)return bad("ไม่พบคำขอ",404);
     const now=new Date().toISOString();
+    if(d.action==="admin_edit"){
+      if(!hasRole(a.u,"admin"))return bad("เฉพาะผู้ดูแลระบบ",403);
+      if(["paid","cancelled"].includes(r.status))return bad("รายการที่จ่ายเงินแล้วหรือยกเลิกแล้วไม่สามารถแก้ไขรายละเอียดได้",409);
+      const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
+      if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
+      if(String(p.fiscalYear||"")!==String(r.fiscalYear||""))return bad("ไม่สามารถย้ายคำขอไปต่างปีงบประมาณได้",409);
+      const fund=funds.find(x=>x.activityId===act.id&&x.fundType===d.fundType&&amount(x.budget)>0);
+      if(!fund)return bad("ประเภทเงินไม่ตรงกับกิจกรรม");
+      const rows=Array.isArray(d.items)?d.items.map(x=>({description:String(x.description||"").trim(),amount:amount(x.amount)})).filter(x=>x.description&&x.amount>0):[];
+      if(!rows.length)return bad("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
+      if(rows.length>50)return bad("รายการบิลมากเกินไป");
+      const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,fund,r.id);
+      if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
+      if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
+      const edited=await update(ctx.env,"Requests",r.id,{projectId:p.id,activityId:act.id,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,totalAmount:total,updatedAt:now});
+      const oldItems=(await listRows(ctx.env,"RequestItems")).filter(x=>x.requestId===r.id).sort((x,y)=>x.__row-y.__row);
+      const updates=[];
+      const common=Math.min(oldItems.length,rows.length);
+      for(let i=0;i<common;i++)updates.push({...oldItems[i],description:rows[i].description,amount:rows[i].amount});
+      for(let i=rows.length;i<oldItems.length;i++)updates.push({...oldItems[i],id:"",requestId:"",description:"",amount:"",createdAt:""});
+      if(updates.length)await batchUpdateRows(ctx.env,"RequestItems",updates);
+      if(rows.length>oldItems.length)await bulkAppend(ctx.env,"RequestItems",rows.slice(oldItems.length).map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
+      return json({ok:true,request:edited});
+    }
     if(d.action==="cancel"){
       if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin"))||r.status!=="submitted")return bad("ไม่สามารถยกเลิกคำขอนี้",403);
       await update(ctx.env,"Requests",r.id,{status:"cancelled",updatedAt:now});return json({ok:true});
