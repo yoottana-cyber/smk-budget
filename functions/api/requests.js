@@ -38,7 +38,7 @@ export async function onRequestGet(ctx){
     const [requests,items,projects,activities,funds,metas,settings,expenses,auditLogs]=await loadAll(ctx.env);
     const url=new URL(ctx.request.url),scope=url.searchParams.get("scope")||"mine",id=url.searchParams.get("id")||"";
     if(scope==="detail"){
-      const r=requests.find(x=>x.id===id);if(!r||!canSee(a.u,r))return bad("ไม่พบคำขอ",404);
+      const r=requests.find(x=>x.id===id),project=r?projects.find(p=>p.id===r.projectId):null,teacherOwns=!!(project&&hasRole(a.u,"teacher")&&ownsProject(a.u,project));if(!r||(!canSee(a.u,r)&&!teacherOwns))return bad("ไม่พบคำขอ",404);
       const meta=metas.find(x=>x.projectId===r.projectId);
       const paidExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
       const enriched=enrich([r],projects,activities)[0];
@@ -47,7 +47,7 @@ export async function onRequestGet(ctx){
       return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value])),timeline});
     }
     let rows=[];
-    if(scope==="mine"){const me=normPerson(a.u.displayName);rows=requests.filter(r=>r.requesterUserId===a.u.id||(!r.requesterUserId&&me&&normPerson(r.requesterName)===me)||((r.requesterUserId!==a.u.id)&&me&&normPerson(r.requesterName)===me));}
+    if(scope==="mine"){const me=normPerson(a.u.displayName),ownedIds=hasRole(a.u,"teacher")?new Set(projects.filter(p=>ownsProject(a.u,p)).map(p=>p.id)):new Set();rows=requests.filter(r=>r.requesterUserId===a.u.id||(me&&normPerson(r.requesterName)===me)||ownedIds.has(r.projectId));}
     else if(scope==="procurement"){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       rows=requests.filter(r=>["submitted","procurement"].includes(r.status));
