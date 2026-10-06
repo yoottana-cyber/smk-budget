@@ -8,7 +8,8 @@ const SCHEMA={
   ActivityFunds:["id","activityId","fundType","budget","createdAt","updatedAt"],
   Requests:["id","requestNo","fiscalYear","projectId","activityId","requesterUserId","requesterName","startDate","endDate","details","fundType","status","totalAmount","procurementDocNo","procurementNote","procurementBy","paymentDate","paymentDocNo","paidAmount","financeNote","financeBy","createdAt","updatedAt"],
   RequestItems:["id","requestId","description","amount","createdAt"],
-  Settings:["key","value","updatedAt"]
+  Settings:["key","value","updatedAt"],
+  AuditLog:["id","createdAt","userId","username","displayName","action","entityType","entityId","summary","details"]
 };
 const enc=new TextEncoder();
 export const json=(x,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
@@ -96,7 +97,7 @@ let ensureExtraReadyUntil=0;
 export async function ensureExtra(env){
   if(Date.now()<ensureExtraReadyUntil)return;
   const meta=await gf(env,"?fields=sheets.properties.title"),have=new Set((meta.sheets||[]).map(x=>x.properties.title));
-  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings"],missing=extra.filter(x=>!have.has(x));
+  const extra=["ProjectMeta","ActivityFunds","Requests","RequestItems","Settings","AuditLog"],missing=extra.filter(x=>!have.has(x));
   if(missing.length)await gf(env,":batchUpdate",{method:"POST",body:JSON.stringify({requests:missing.map(title=>({addSheet:{properties:{title}}}))})});
   const headerSheets=[...new Set([...missing,"Expenses"])];
   const headerGroups=await batchValues(env,headerSheets.map(s=>s+"!1:1"));
@@ -143,6 +144,23 @@ export function ownsProject(u,p){
   if(!hasRole(u,"teacher"))return false;
   const a=normPerson(u.displayName),b=normPerson(p.owner);
   return !!a&&!!b&&(b.includes(a)||a.includes(b));
+}
+export async function writeAudit(env,user,action,entityType,entityId="",summary="",details={}){
+  try{
+    const detailText=typeof details==="string"?details:JSON.stringify(details??{});
+    await append(env,"AuditLog",{
+      id:"log_"+crypto.randomUUID(),
+      createdAt:new Date().toISOString(),
+      userId:user?.id||"",
+      username:user?.username||"",
+      displayName:user?.displayName||"",
+      action:String(action||""),
+      entityType:String(entityType||""),
+      entityId:String(entityId||""),
+      summary:String(summary||"").slice(0,500),
+      details:String(detailText||"").slice(0,8000)
+    });
+  }catch{}
 }
 export const PENDING_STATUSES=["submitted","procurement","finance"];
 export const FUND_LABELS={subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"};
