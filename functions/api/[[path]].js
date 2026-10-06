@@ -24,6 +24,8 @@ const VALID_ROLES=["admin","planner","teacher","procurement","finance","viewer"]
 function roleList(value){const src=Array.isArray(value)?value:String(value||"").split(",");return[...new Set(src.map(x=>String(x).trim()).filter(x=>VALID_ROLES.includes(x)))]}
 function hasRole(u,role){return roleList(u?.roles?.length?u.roles:u?.role).includes(role)}
 function hasAnyRole(u,roles=[]){return roles.some(role=>hasRole(u,role))}
+function normPerson(s){return String(s||"").toLowerCase().replace(/\s+/g,"").replace(/^(นาย|นางสาว|นาง|ครู|ดร\.?|ว่าที่ร้อยตรีหญิง|ว่าที่ร้อยตรี)/,"")}
+function ownsProject(u,p){const a=normPerson(u?.displayName),b=normPerson(p?.owner);return !!a&&!!b&&(b.includes(a)||a.includes(b))}
 function safeUser(row){const roles=roleList(row.role),r=roles.length?roles:["viewer"];return{id:row.id,username:row.username,role:r[0],roles:r,displayName:row.displayName}}
 
 let googleTokenCache={token:"",exp:0};
@@ -86,7 +88,7 @@ export async function onRequest(ctx){
     }
 
     if(path==="me"&&method==="GET"){const a=await user(ctx);return a.error?bad("ไม่ได้รับอนุญาต",401):json({user:a.u})}
-    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests"]);return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses,projectMeta:g.ProjectMeta,activityFunds:g.ActivityFunds,requests:g.Requests})}
+    if(path==="data"&&method==="GET"){const a=await user(ctx);if(a.error)return bad("ไม่ได้รับอนุญาต",401);const g=await listMany(env,["Projects","Activities","Expenses","ProjectMeta","ActivityFunds","Requests"]);const teacherOnly=hasRole(a.u,"teacher")&&!hasAnyRole(a.u,["admin","planner","procurement","finance","viewer"]);if(!teacherOnly)return json({projects:g.Projects,activities:g.Activities,expenses:g.Expenses,projectMeta:g.ProjectMeta,activityFunds:g.ActivityFunds,requests:g.Requests});const projects=g.Projects.filter(p=>ownsProject(a.u,p)),pids=new Set(projects.map(p=>p.id)),activities=g.Activities.filter(x=>pids.has(x.projectId)),aids=new Set(activities.map(x=>x.id));return json({projects,activities,expenses:g.Expenses.filter(x=>pids.has(x.projectId)),projectMeta:g.ProjectMeta.filter(x=>pids.has(x.projectId)),activityFunds:g.ActivityFunds.filter(x=>aids.has(x.activityId)),requests:g.Requests.filter(x=>pids.has(x.projectId))})}
 
     if(path==="users"){
       const a=await user(ctx,["admin"]);if(a.error)return bad(a.error==="FORBIDDEN"?"เฉพาะผู้ดูแลระบบเท่านั้น":"ไม่ได้รับอนุญาต",roleStatus(a.error));
@@ -126,7 +128,7 @@ export async function onRequest(ctx){
     const map={projects:"Projects",activities:"Activities",expenses:"Expenses"},sheet=map[path];
     if(sheet){
       if(method==="POST"||method==="PUT"){
-        const a=await user(ctx,["admin","planner","finance"]);if(a.error)return bad(a.error==="FORBIDDEN"?"ไม่มีสิทธิ์แก้ไขข้อมูล":"ไม่ได้รับอนุญาต",roleStatus(a.error));
+        const editRoles=sheet==="Expenses"?["admin","finance"]:["admin","planner"],a=await user(ctx,editRoles);if(a.error)return bad(a.error==="FORBIDDEN"?(sheet==="Expenses"?"เฉพาะผู้ดูแลระบบหรือการเงินเท่านั้น":"เฉพาะผู้ดูแลระบบหรืองานแผนเท่านั้น"):"ไม่ได้รับอนุญาต",roleStatus(a.error));
         const d=await body(ctx.request),now=new Date().toISOString();
         const amount=n=>Number(String(n??0).replace(/,/g,""))||0;
 
