@@ -87,7 +87,6 @@ export async function onRequestPut(ctx){
     const now=new Date().toISOString();
     if(d.action==="admin_edit"){
       if(!hasRole(a.u,"admin"))return bad("เฉพาะผู้ดูแลระบบ",403);
-      if(["paid","cancelled"].includes(r.status))return bad("รายการที่จ่ายเงินแล้วหรือยกเลิกแล้วไม่สามารถแก้ไขรายละเอียดได้",409);
       const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
       if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
       if(String(p.fiscalYear||"")!==String(r.fiscalYear||""))return bad("ไม่สามารถย้ายคำขอไปต่างปีงบประมาณได้",409);
@@ -98,6 +97,7 @@ export async function onRequestPut(ctx){
       if(rows.length>50)return bad("รายการบิลมากเกินไป");
       const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,fund,r.id);
       if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
+      if(r.status==="paid"&&amount(r.paidAmount)>total)return bad("ยอดขอเบิกใหม่ต้องไม่น้อยกว่ายอดที่จ่ายแล้ว "+amount(r.paidAmount).toLocaleString("th-TH")+" บาท",409);
       if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
       const edited=await update(ctx.env,"Requests",r.id,{projectId:p.id,activityId:act.id,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,totalAmount:total,updatedAt:now});
       const oldItems=(await listRows(ctx.env,"RequestItems")).filter(x=>x.requestId===r.id).sort((x,y)=>x.__row-y.__row);
@@ -107,6 +107,10 @@ export async function onRequestPut(ctx){
       for(let i=rows.length;i<oldItems.length;i++)updates.push({...oldItems[i],id:"",requestId:"",description:"",amount:"",createdAt:""});
       if(updates.length)await batchUpdateRows(ctx.env,"RequestItems",updates);
       if(rows.length>oldItems.length)await bulkAppend(ctx.env,"RequestItems",rows.slice(oldItems.length).map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
+      if(r.status==="paid"){
+        const linkedExpense=expenses.find(x=>String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo));
+        if(linkedExpense)await update(ctx.env,"Expenses",linkedExpense.id,{projectId:p.id,activityId:act.id,description:"เบิกจ่ายตามคำขอ "+r.requestNo+" - "+(act?.name||""),note:"ประเภทเงิน: "+(FUND_LABELS[d.fundType]||d.fundType)+"; คำขอ "+r.requestNo+"; โครงการ "+(p?.name||""),updatedAt:now});
+      }
       return json({ok:true,request:edited});
     }
     if(d.action==="cancel"){
