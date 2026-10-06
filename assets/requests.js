@@ -10,14 +10,26 @@ const REQUEST_STATUS={
 };
 const REQUEST_ROLES=["admin","planner","teacher","procurement","finance"];
 let requestVisibleStatuses=new Set(Object.keys(REQUEST_STATUS));
+function requestOwnedByCurrentUser(r,projectMap=null){
+  if(!r||!state.user)return false;
+  if(hasRole("admin"))return true;
+  const uid=String(state.user.id||""),username=String(state.user.username||""),me=normalizePersonLite(state.user.displayName);
+  if(uid&&String(r.requesterUserId||"")===uid)return true;
+  if(username&&String(r.requesterUsername||"")===username)return true;
+  if(me&&normalizePersonLite(r.requesterName)===me)return true;
+  if(hasRole("teacher")){
+    const pm=projectMap||Object.fromEntries((state.data.projects||[]).map(x=>[x.id,x])),owner=normalizePersonLite(pm[r.projectId]?.owner);
+    if(me&&owner&&(owner.includes(me)||me.includes(owner)))return true;
+  }
+  return false;
+}
 function localRequestRows(scope="mine"){
   const projects=state.data.projects||[],activities=state.data.activities||[],requests=state.data.requests||[];
   const pm=Object.fromEntries(projects.map(x=>[x.id,x])),am=Object.fromEntries(activities.map(x=>[x.id,x]));
   const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"};
   let rows=[...requests];
   if(scope==="mine"&&!hasRole("admin")){
-    const uid=String(state.user?.id||""),username=String(state.user?.username||""),name=String(state.user?.displayName||"").replace(/\s+/g,"");
-    rows=rows.filter(r=>String(r.requesterUserId||"")===uid||String(r.requesterUsername||"")===username||String(r.requesterName||"").replace(/\s+/g,"")===name||pm[r.projectId]);
+    rows=rows.filter(r=>requestOwnedByCurrentUser(r,pm));
   }else if(scope==="procurement")rows=rows.filter(r=>["submitted","procurement"].includes(String(r.status||"").trim()));
   else if(scope==="finance")rows=rows.filter(r=>String(r.status||"").trim()==="finance");
   return rows.map(r=>({...r,projectCode:pm[r.projectId]?.code||"",projectName:pm[r.projectId]?.name||"",projectOwner:pm[r.projectId]?.owner||"",activityCode:am[r.activityId]?.code||"",activityName:am[r.activityId]?.name||"",fundLabel:fundLabels[r.fundType]||r.fundType})).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
@@ -61,7 +73,7 @@ async function requests(){
         <td>${esc(r.fundLabel||r.fundType)}</td>
         <td class="num"><strong>${money(r.totalAmount)}</strong></td>
         <td>${requestStatusBadge(String(r.status||"").trim())}</td>
-        <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&r.requesterUserId===state.user.id?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
+        <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&requestOwnedByCurrentUser(r)?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(adminView||requestOwnedByCurrentUser(r))?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
       $$("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
       $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
@@ -173,7 +185,7 @@ async function editRequest(id,refreshFn=requests){
       api("/api/requests?scope=detail&id="+encodeURIComponent(id)),
       api("/api/request-context")
     ]);
-    const rq=detail.request,adminMode=hasRole("admin"),resubmitMode=!adminMode&&rq.status==="returned"&&rq.requesterUserId===state.user.id;
+    const rq=detail.request,adminMode=hasRole("admin"),resubmitMode=!adminMode&&rq.status==="returned"&&requestOwnedByCurrentUser(rq);
     if(!adminMode&&!resubmitMode)return Swal.fire({icon:"warning",title:"ไม่มีสิทธิ์แก้ไขรายการนี้"});
     const eligibleProjects=ctx.projects.filter(p=>String(p.fiscalYear||"")===String(rq.fiscalYear||""));
     const divisionOrder=["วิชาการ","งบประมาณ","บุคคล","กิจการนักเรียน","บริหารทั่วไป"];
