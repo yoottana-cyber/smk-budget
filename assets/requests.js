@@ -10,6 +10,18 @@ const REQUEST_STATUS={
 };
 const REQUEST_ROLES=["admin","planner","teacher","procurement","finance"];
 let requestVisibleStatuses=new Set(Object.keys(REQUEST_STATUS));
+function localRequestRows(scope="mine"){
+  const projects=state.data.projects||[],activities=state.data.activities||[],requests=state.data.requests||[];
+  const pm=Object.fromEntries(projects.map(x=>[x.id,x])),am=Object.fromEntries(activities.map(x=>[x.id,x]));
+  const fundLabels={subsidy:"งบเงินอุดหนุน",activity:"งบเงินกิจกรรมพัฒนาคุณภาพผู้เรียน",income:"งบเงินรายได้ฯ",other:"อื่นๆ"};
+  let rows=[...requests];
+  if(scope==="mine"&&!hasRole("admin")){
+    const uid=String(state.user?.id||""),username=String(state.user?.username||""),name=String(state.user?.displayName||"").replace(/\s+/g,"");
+    rows=rows.filter(r=>String(r.requesterUserId||"")===uid||String(r.requesterUsername||"")===username||String(r.requesterName||"").replace(/\s+/g,"")===name||pm[r.projectId]);
+  }else if(scope==="procurement")rows=rows.filter(r=>["submitted","procurement"].includes(String(r.status||"").trim()));
+  else if(scope==="finance")rows=rows.filter(r=>String(r.status||"").trim()==="finance");
+  return rows.map(r=>({...r,projectCode:pm[r.projectId]?.code||"",projectName:pm[r.projectId]?.name||"",projectOwner:pm[r.projectId]?.owner||"",activityCode:am[r.activityId]?.code||"",activityName:am[r.activityId]?.name||"",fundLabel:fundLabels[r.fundType]||r.fundType})).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+}
 function requestStatusBadge(s){
   const x=REQUEST_STATUS[s]||[s,"gray"];
   return `<span class="badge request-${x[1]}">${esc(x[0])}</span>`;
@@ -18,7 +30,7 @@ async function requests(){
   if(!hasAnyRole(REQUEST_ROLES)){state.route="dashboard";return render()}
   $("#content").innerHTML='<section class="panel"><div class="empty">กำลังโหลดรายการขอเบิก...</div></section>';
   try{
-    const adminView=hasRole("admin"),d=await api("/api/requests?scope="+(adminView?"all":"mine")+"&_="+Date.now()),canNew=hasAnyRole(["admin","planner","teacher"]);
+    const adminView=hasRole("admin"),scope=adminView?"all":"mine",d=await api("/api/requests?scope="+scope+"&_="+Date.now()),fallbackRows=localRequestRows(scope);if(!d.requests?.length&&fallbackRows.length)d.requests=fallbackRows;const canNew=hasAnyRole(["admin","planner","teacher"]);
     const statusOptions=Object.entries(REQUEST_STATUS);
     const allStatuses=Object.keys(REQUEST_STATUS);
     $("#content").innerHTML=`
@@ -302,7 +314,7 @@ async function requestTimeline(id){
 async function procurementQueue(){
   if(!hasAnyRole(["admin","procurement"])){state.route="dashboard";return render()}
   try{
-    const d=await api("/api/requests?scope=procurement");
+    const d=await api("/api/requests?scope=procurement&_="+Date.now()),fallbackRows=localRequestRows("procurement");if(!d.requests?.length&&fallbackRows.length)d.requests=fallbackRows;
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอพัสดุดำเนินการ</h3><p class="muted">ตรวจคำขอ จัดทำชุดเบิกจ่าย และส่งต่อเจ้าหน้าที่การเงิน</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอด</th><th>สถานะ</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td>${requestStatusBadge(r.status)}</td><td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติ"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button>${r.status==="submitted"?`<button class="btn btn-ghost" data-start="${r.id}">รับดำเนินการ</button>`:""}<button class="btn btn-primary" data-send="${r.id}">ส่งการเงิน</button><button class="btn btn-ghost" data-return="${r.id}">ส่งกลับแก้ไข</button><button class="btn btn-ghost danger" data-reject="${r.id}">ไม่อนุมัติ</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่มีรายการรอพัสดุ</td></tr>'}
@@ -329,7 +341,7 @@ async function procurementAction(id,action){
 async function financeQueue(){
   if(!hasAnyRole(["admin","finance"])){state.route="dashboard";return render()}
   try{
-    const d=await api("/api/requests?scope=finance");
+    const d=await api("/api/requests?scope=finance&_="+Date.now()),fallbackRows=localRequestRows("finance");if(!d.requests?.length&&fallbackRows.length)d.requests=fallbackRows;
     $("#content").innerHTML=`<section class="panel"><div class="panel-head"><div><h3>รายการรอจ่ายเงิน</h3><p class="muted">เมื่อบันทึกจ่ายแล้ว ระบบจะลงรายจ่ายจริงให้โครงการและกิจกรรมอัตโนมัติ</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>คำขอ</th><th>ผู้ขอเบิก</th><th>โครงการ / กิจกรรม</th><th>ประเภทเงิน</th><th class="num">ยอดขอเบิก</th><th></th></tr></thead><tbody>
       ${d.requests.length?d.requests.map(r=>`<tr><td><strong>${esc(r.requestNo)}</strong></td><td>${esc(r.requesterName)}</td><td>${esc(r.projectName)}<br><small>${esc(r.activityName)}</small></td><td>${esc(r.fundLabel)}</td><td class="num">${money(r.totalAmount)}</td><td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติ"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}"><i data-lucide="printer"></i></button><button class="btn btn-primary" data-pay="${r.id}" data-total="${r.totalAmount}">ลงจ่ายเงิน</button><button class="btn btn-ghost" data-return-proc="${r.id}">ส่งกลับพัสดุ</button><button class="btn btn-ghost" data-return="${r.id}">ส่งกลับครู</button><button class="btn btn-ghost danger" data-reject="${r.id}">ไม่อนุมัติ</button>${hasRole("admin")?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการ"><i data-lucide="pencil"></i></button><button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td></tr>`).join(""):'<tr><td colspan="6" class="empty">ไม่มีรายการรอการเงิน</td></tr>'}
