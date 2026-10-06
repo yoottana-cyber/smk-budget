@@ -47,7 +47,7 @@ export async function onRequestGet(ctx){
       return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value])),timeline});
     }
     let rows=[];
-    if(scope==="mine"){const me=normPerson(a.u.displayName),ownedIds=hasRole(a.u,"teacher")?new Set(projects.filter(p=>ownsProject(a.u,p)).map(p=>p.id)):new Set();rows=requests.filter(r=>r.requesterUserId===a.u.id||(me&&normPerson(r.requesterName)===me)||ownedIds.has(r.projectId));}
+    if(scope==="mine"){const me=normPerson(a.u.displayName),ownedIds=hasRole(a.u,"teacher")?new Set(projects.filter(p=>ownsProject(a.u,p)).map(p=>p.id)):new Set();rows=requests.filter(r=>String(r.requesterUsername||"")===String(a.u.username||"")||String(r.requesterUserId||"")===String(a.u.id||"")||(me&&normPerson(r.requesterName)===me)||ownedIds.has(r.projectId));}
     else if(scope==="procurement"){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       rows=requests.filter(r=>["submitted","procurement"].includes(r.status));
@@ -79,8 +79,9 @@ export async function onRequestPost(ctx){
     if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
     if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
     const fy=String(p.fiscalYear||""),maxReq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0),requestNo=await nextDocumentNumber(ctx.env,"request",fy,maxReq),now=new Date().toISOString();
-    const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now};
+    const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now,requesterUsername:a.u.username};
     await append(ctx.env,"Requests",r);
+    const verifyRows=await listMany(ctx.env,["Requests"]);if(!verifyRows.Requests.some(x=>x.id===r.id))throw new Error("บันทึกคำขอแล้วแต่ตรวจสอบไม่พบข้อมูลในชีต Requests กรุณาลองอีกครั้ง");
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
     await writeAudit(ctx.env,a.u,"CREATE","request",r.id,"สร้างคำขอเบิก "+r.requestNo,{requestNo:r.requestNo,totalAmount:r.totalAmount,fundType:r.fundType,projectId:r.projectId,activityId:r.activityId});
     return json({ok:true,request:r},201);
