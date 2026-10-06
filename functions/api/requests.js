@@ -4,8 +4,8 @@ import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,a
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
 async function loadAll(env){
-  const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses"]);
-  return[g.Requests,g.RequestItems,g.Projects,g.Activities,g.ActivityFunds,g.ProjectMeta,g.Settings,g.Expenses];
+  const g=await listMany(env,["Requests","RequestItems","Projects","Activities","ActivityFunds","ProjectMeta","Settings","Expenses","AuditLog"]);
+  return[g.Requests,g.RequestItems,g.Projects,g.Activities,g.ActivityFunds,g.ProjectMeta,g.Settings,g.Expenses,g.AuditLog];
 }
 function enrich(rs,projects,activities){
   const pm=Object.fromEntries(projects.map(x=>[x.id,x])),am=Object.fromEntries(activities.map(x=>[x.id,x]));
@@ -35,7 +35,7 @@ export async function onRequestGet(ctx){
   try{
     await ensureExtra(ctx.env);
     const a=await auth(ctx,allowedRoles);if(a.error)return bad("ไม่ได้รับอนุญาต",a.error==="FORBIDDEN"?403:401);
-    const [requests,items,projects,activities,funds,metas,settings,expenses]=await loadAll(ctx.env);
+    const [requests,items,projects,activities,funds,metas,settings,expenses,auditLogs]=await loadAll(ctx.env);
     const url=new URL(ctx.request.url),scope=url.searchParams.get("scope")||"mine",id=url.searchParams.get("id")||"";
     if(scope==="detail"){
       const r=requests.find(x=>x.id===id);if(!r||!canSee(a.u,r))return bad("ไม่พบคำขอ",404);
@@ -43,7 +43,8 @@ export async function onRequestGet(ctx){
       const paidExpense=expenses.find(x=>x.requestId===r.id)||expenses.find(x=>x.projectId===r.projectId&&x.activityId===r.activityId&&(String(x.note||"").includes("คำขอ "+r.requestNo)||String(x.description||"").includes(r.requestNo)));
       const enriched=enrich([r],projects,activities)[0];
       if(paidExpense?.docNo)enriched.paymentDocNo=paidExpense.docNo;
-      return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value]))});
+      const timeline=(auditLogs||[]).filter(x=>x.entityType==="request"&&x.entityId===r.id).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
+      return json({request:enriched,items:items.filter(x=>x.requestId===r.id),division:meta?.division||"",settings:Object.fromEntries(settings.map(x=>[x.key,x.value])),timeline});
     }
     let rows=[];
     if(scope==="mine")rows=requests.filter(r=>r.requesterUserId===a.u.id);
@@ -135,6 +136,53 @@ export async function onRequestPut(ctx){
       if(!hasAnyRole(a.u,["admin","procurement"]))return bad("เฉพาะเจ้าหน้าที่พัสดุ",403);
       if(!["submitted","procurement"].includes(r.status))return bad("สถานะคำขอไม่ถูกต้อง",409);
       await update(ctx.env,"Requests",r.id,{status:"finance",procurementDocNo:String(d.procurementDocNo||"").trim(),procurementNote:String(d.note||"").trim(),procurementBy:a.u.displayName,updatedAt:now});await writeAudit(ctx.env,a.u,"STATUS","request",r.id,"ส่งคำขอไปการเงิน "+r.requestNo,{from:r.status,to:"finance",procurementDocNo:String(d.procurementDocNo||"").trim()});return json({ok:true});
+    }
+    if(d.action==="return_edit"){
+      const reason=String(d.reason||"").trim();if(!reason)return bad("กรุณาระบุเหตุผลที่ส่งกลับแก้ไข");
+      const allowed=(["submitted","procurement"].includes(r.status)&&hasAnyRole(a.u,["admin","procurement"]))||(r.status==="finance"&&hasAnyRole(a.u,["admin","finance"]));
+      if(!allowed)return bad("ไม่มีสิทธิ์ส่งกลับคำขอนี้",403);
+      await update(ctx.env,"Requests",r.id,{status:"returned",updatedAt:now});
+      await writeAudit(ctx.env,a.u,"RETURN","request",r.id,"ส่งกลับแก้ไข "+r.requestNo,{from:r.status,to:"returned",reason,target:"requester"});
+      return json({ok:true});
+    }
+    if(d.action==="return_procurement"){
+      if(!hasAnyRole(a.u,["admin","finance"]))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
+      if(r.status!=="finance")return bad("รายการนี้ไม่ได้อยู่ในสถานะรอการเงิน",409);
+      const reason=String(d.reason||"").trim();if(!reason)return bad("กรุณาระบุเหตุผลที่ส่งกลับพัสดุ");
+      await update(ctx.env,"Requests",r.id,{status:"procurement",financeNote:"ส่งกลับพัสดุ: "+reason,updatedAt:now});
+      await writeAudit(ctx.env,a.u,"RETURN","request",r.id,"ส่งกลับงานพัสดุ "+r.requestNo,{from:"finance",to:"procurement",reason,target:"procurement"});
+      return json({ok:true});
+    }
+    if(d.action==="reject"){
+      const reason=String(d.reason||"").trim();if(!reason)return bad("กรุณาระบุเหตุผลที่ไม่อนุมัติ");
+      const allowed=(["submitted","procurement"].includes(r.status)&&hasAnyRole(a.u,["admin","procurement"]))||(r.status==="finance"&&hasAnyRole(a.u,["admin","finance"]));
+      if(!allowed)return bad("ไม่มีสิทธิ์ไม่อนุมัติคำขอนี้",403);
+      await update(ctx.env,"Requests",r.id,{status:"rejected",updatedAt:now});
+      await writeAudit(ctx.env,a.u,"REJECT","request",r.id,"ไม่อนุมัติคำขอ "+r.requestNo,{from:r.status,to:"rejected",reason});
+      return json({ok:true});
+    }
+    if(d.action==="resubmit"){
+      if(r.status!=="returned")return bad("คำขอนี้ไม่ได้อยู่ในสถานะส่งกลับแก้ไข",409);
+      if(!(r.requesterUserId===a.u.id||hasRole(a.u,"admin")))return bad("เฉพาะผู้ขอเบิกหรือผู้ดูแลระบบเท่านั้น",403);
+      const p=projects.find(x=>x.id===d.projectId),act=activities.find(x=>x.id===d.activityId&&x.projectId===d.projectId);
+      if(!p||!act)return bad("โครงการหรือกิจกรรมไม่ถูกต้อง");
+      if(String(p.fiscalYear||"")!==String(r.fiscalYear||""))return bad("ไม่สามารถย้ายคำขอไปต่างปีงบประมาณได้",409);
+      if(!hasRole(a.u,"admin")&&!ownsProject(a.u,p))return bad("คุณไม่มีสิทธิ์เบิกโครงการนี้",403);
+      const fund=funds.find(x=>x.activityId===act.id&&x.fundType===d.fundType&&amount(x.budget)>0);if(!fund)return bad("ประเภทเงินไม่ตรงกับกิจกรรม");
+      const rows=Array.isArray(d.items)?d.items.map(x=>({description:String(x.description||"").trim(),amount:amount(x.amount)})).filter(x=>x.description&&x.amount>0):[];
+      if(!rows.length)return bad("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
+      if(rows.length>50)return bad("รายการบิลมากเกินไป");
+      const total=rows.reduce((s,x)=>s+x.amount,0),available=availableFor(requests,expenses,fund,r.id);
+      if(total>available)return bad("ยอดขอเบิกเกินเงินคงเหลือของประเภทเงินนี้ คงเหลือ "+available.toLocaleString("th-TH")+" บาท",409);
+      if(!d.startDate||!d.endDate||d.endDate<d.startDate)return bad("ช่วงวันที่ดำเนินกิจกรรมไม่ถูกต้อง");
+      const edited=await update(ctx.env,"Requests",r.id,{projectId:p.id,activityId:act.id,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,totalAmount:total,status:"submitted",updatedAt:now});
+      const oldItems=(await listRows(ctx.env,"RequestItems")).filter(x=>x.requestId===r.id).sort((x,y)=>x.__row-y.__row),updates=[],common=Math.min(oldItems.length,rows.length);
+      for(let i=0;i<common;i++)updates.push({...oldItems[i],description:rows[i].description,amount:rows[i].amount});
+      for(let i=rows.length;i<oldItems.length;i++)updates.push({...oldItems[i],id:"",requestId:"",description:"",amount:"",createdAt:""});
+      if(updates.length)await batchUpdateRows(ctx.env,"RequestItems",updates);
+      if(rows.length>oldItems.length)await bulkAppend(ctx.env,"RequestItems",rows.slice(oldItems.length).map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
+      await writeAudit(ctx.env,a.u,"RESUBMIT","request",r.id,"แก้ไขและส่งคำขอใหม่ "+r.requestNo,{from:"returned",to:"submitted",totalAmount:total,fundType:d.fundType});
+      return json({ok:true,request:edited});
     }
     if(d.action==="pay"){
       if(!hasAnyRole(a.u,["admin","finance"]))return bad("เฉพาะเจ้าหน้าที่การเงิน",403);
