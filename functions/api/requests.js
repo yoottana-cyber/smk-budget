@@ -1,5 +1,5 @@
 
-import {ensureExtra,listMany,listRows,append,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,normPerson,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
+import {ensureExtra,listMany,listRows,append,appendStrict,bulkAppend,batchUpdateRows,update,auth,json,bad,amount,readBody,ownsProject,normPerson,hasRole,hasAnyRole,PENDING_STATUSES,FUND_LABELS,writeAudit,nextDocumentNumber} from "../../src/budget-db.js";
 
 const allowedRoles=["admin","planner","teacher","procurement","finance"];
 const canSee=(u,r)=>hasAnyRole(u,["admin","planner","procurement","finance"])||r.requesterUserId===u.id;
@@ -106,7 +106,7 @@ export async function onRequestPost(ctx){
     }
     const fy=String(p.fiscalYear||""),maxReq=requests.filter(x=>x.fiscalYear===fy).reduce((m,x)=>{const n=Number(String(x.requestNo||"").match(/-(\d+)$/)?.[1]||0);return Math.max(m,n)},0),requestNo=await nextDocumentNumber(ctx.env,"request",fy,maxReq),now=new Date().toISOString();
     const r={id:"req_"+crypto.randomUUID(),requestNo,fiscalYear:fy,projectId:p.id,activityId:act.id,requesterUserId:a.u.id,requesterName:a.u.displayName,startDate:d.startDate,endDate:d.endDate,details:String(d.details||"").trim(),fundType:d.fundType,status:"submitted",totalAmount:total,procurementDocNo:"",procurementNote:"",procurementBy:"",paymentDate:"",paymentDocNo:"",paidAmount:"",financeNote:"",financeBy:"",createdAt:now,updatedAt:now,requesterUsername:a.u.username};
-    const appendResult=await append(ctx.env,"Requests",r);
+    const appendResult=await appendStrict(ctx.env,"Requests",r);
     if(Number(appendResult?.updates?.updatedRows||0)<1)throw new Error("ไม่สามารถบันทึกคำขอลงชีต Requests ได้");
     await bulkAppend(ctx.env,"RequestItems",rows.map(x=>({id:"ritem_"+crypto.randomUUID(),requestId:r.id,description:x.description,amount:x.amount,createdAt:now})));
     await writeAudit(ctx.env,a.u,"CREATE","request",r.id,"สร้างคำขอเบิก "+r.requestNo,{requestNo:r.requestNo,totalAmount:r.totalAmount,fundType:r.fundType,projectId:r.projectId,activityId:r.activityId});
