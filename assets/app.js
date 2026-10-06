@@ -220,7 +220,10 @@ function dashboardRolePanel(allRequests,projects){
     return hasRole("teacher")&&me&&owner&&(owner.includes(me)||me.includes(owner));
   };
   const cards=[];
-  if(hasAnyRole(["teacher","planner"])&&!hasRole("admin")){
+  if(hasRole("planner")&&!hasRole("admin")){
+    const pending=(allRequests||[]).filter(r=>["submitted","procurement","finance","returned"].includes(String(r.status||"").trim())).length;
+    cards.push({icon:"files",title:"คำขอระหว่างดำเนินการ",value:pending+" รายการ",sub:"ติดตามภาพรวมคำขอทุกโครงการ",route:"requests",tone:pending?"info":"normal"});
+  }else if(hasRole("teacher")&&!hasRole("admin")){
     const own=(allRequests||[]).filter(mine),returned=own.filter(r=>String(r.status||"").trim()==="returned").length,pending=own.filter(r=>["submitted","procurement","finance"].includes(String(r.status||"").trim())).length;
     cards.push({icon:"file-text",title:"คำขอของฉัน",value:pending+" รายการ",sub:returned?"ส่งกลับแก้ไข "+returned+" รายการ":"ไม่มีรายการส่งกลับ",route:"requests",tone:returned?"warning":"normal"});
   }
