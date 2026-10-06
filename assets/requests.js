@@ -3,6 +3,8 @@ const REQUEST_STATUS={
   submitted:["รอพัสดุ","warning"],
   procurement:["พัสดุดำเนินการ","warning"],
   finance:["รอการเงิน","info"],
+  returned:["ส่งกลับแก้ไข","warning"],
+  rejected:["ไม่อนุมัติ","gray"],
   paid:["จ่ายเงินแล้ว","success"],
   cancelled:["ยกเลิก","gray"]
 };
@@ -46,10 +48,11 @@ async function requests(){
         <td>${esc(r.fundLabel||r.fundType)}</td>
         <td class="num"><strong>${money(r.totalAmount)}</strong></td>
         <td>${requestStatusBadge(r.status)}</td>
-        <td><div class="actions"><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView?`<button class="icon-btn" data-edit-request="${r.id}" title="แก้ไขรายการขอเบิก"><i data-lucide="pencil"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
+        <td><div class="actions"><button class="icon-btn" data-timeline="${r.id}" title="ดูประวัติขั้นตอน"><i data-lucide="history"></i></button><button class="icon-btn" data-print="${r.id}" title="พิมพ์บันทึกขอเบิก"><i data-lucide="printer"></i></button>${adminView||r.status==="returned"&&r.requesterUserId===state.user.id?`<button class="icon-btn" data-edit-request="${r.id}" title="${r.status==="returned"&&!adminView?"แก้ไขและส่งใหม่":"แก้ไขรายการขอเบิก"}"><i data-lucide="${r.status==="returned"&&!adminView?"rotate-ccw":"pencil"}"></i></button>`:""}${r.status==="submitted"&&(!adminView||r.requesterUserId===state.user.id)?`<button class="icon-btn" data-cancel="${r.id}" title="ยกเลิกคำขอ"><i data-lucide="x"></i></button>`:""}${adminView?`<button class="icon-btn" data-delete-request="${r.id}" title="ลบรายการ"><i data-lucide="trash-2"></i></button>`:""}</div></td>
       </tr>`).join(""):'<tr><td colspan="7" class="empty">ไม่พบรายการตามสถานะที่เลือก</td></tr>';
-      $$("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
-      $$("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
+      $("[data-timeline]").forEach(b=>b.onclick=()=>requestTimeline(b.dataset.timeline));
+      $("[data-print]").forEach(b=>b.onclick=()=>printRequest(b.dataset.print));
+      $("[data-edit-request]").forEach(b=>b.onclick=()=>editRequest(b.dataset.editRequest));
       $$("[data-cancel]").forEach(b=>b.onclick=()=>cancelRequest(b.dataset.cancel));
       $$("[data-delete-request]").forEach(b=>b.onclick=()=>deleteRequest(d.requests.find(r=>r.id===b.dataset.deleteRequest),requests));
       lucide.createIcons();
@@ -146,12 +149,12 @@ async function newRequest(){
 }
 async function editRequest(id,refreshFn=requests){
   try{
-    if(!hasRole("admin"))return;
     const [detail,ctx]=await Promise.all([
       api("/api/requests?scope=detail&id="+encodeURIComponent(id)),
       api("/api/request-context")
     ]);
-    const rq=detail.request;
+    const rq=detail.request,adminMode=hasRole("admin"),resubmitMode=!adminMode&&rq.status==="returned"&&rq.requesterUserId===state.user.id;
+    if(!adminMode&&!resubmitMode)return Swal.fire({icon:"warning",title:"ไม่มีสิทธิ์แก้ไขรายการนี้"});
     const eligibleProjects=ctx.projects.filter(p=>String(p.fiscalYear||"")===String(rq.fiscalYear||""));
     const divisionOrder=["วิชาการ","งบประมาณ","บุคคล","กิจการนักเรียน","บริหารทั่วไป"];
     const divisions=[...new Set(eligibleProjects.map(p=>p.division||"ไม่ระบุฝ่าย"))].sort((a,b)=>{
@@ -164,7 +167,7 @@ async function editRequest(id,refreshFn=requests){
       return `<optgroup label="${esc(division)}">${rows.map(p=>`<option value="${p.id}">${esc(p.code)} - ${esc(p.name)}</option>`).join("")}</optgroup>`;
     }).join("");
     const x=await Swal.fire({
-      title:"แก้ไขรายการขอเบิก "+esc(rq.requestNo),width:860,
+      title:(resubmitMode?"แก้ไขและส่งคำขอใหม่ ":"แก้ไขรายการขอเบิก ")+esc(rq.requestNo),width:860,
       html:`<div class="form-stack request-form" style="text-align:left">
         ${rq.status==="paid"?'<div class="badge request-warning" style="padding:8px 10px">รายการนี้จ่ายเงินแล้ว การแก้โครงการ/กิจกรรม/ประเภทเงินจะซิงก์ไปยังรายจ่ายที่เชื่อมกัน</div>':rq.status==="cancelled"?'<div class="badge gray" style="padding:8px 10px">รายการนี้ถูกยกเลิก การแก้ไขจะเปลี่ยนเฉพาะข้อมูลประวัติและไม่กระทบยอดงบ</div>':""}
         <label>ผู้ขอเบิก<input value="${esc(rq.requesterName||"-")}" disabled></label>
@@ -177,7 +180,7 @@ async function editRequest(id,refreshFn=requests){
         <div id="billRows" class="bill-list"></div>
         <div class="bill-total"><span>รวมยอดขอเบิก</span><strong id="billTotal">฿0.00</strong></div>
       </div>`,
-      showCancelButton:true,confirmButtonText:"บันทึกการแก้ไข",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
+      showCancelButton:true,confirmButtonText:resubmitMode?"บันทึกและส่งใหม่":"บันทึกการแก้ไข",cancelButtonText:"ยกเลิก",confirmButtonColor:"#0f766e",
       didOpen:()=>{
         const p=$("#rqProject"),a=$("#rqActivity"),f=$("#rqFund");
         p.value=rq.projectId;
@@ -210,13 +213,13 @@ async function editRequest(id,refreshFn=requests){
         if(!$("#rqStart").value||!$("#rqEnd").value||$("#rqEnd").value<$("#rqStart").value)return Swal.showValidationMessage("กรุณาตรวจช่วงวันที่ดำเนินกิจกรรม");
         if(!items.length)return Swal.showValidationMessage("กรุณาเพิ่มรายการบิลอย่างน้อย 1 รายการ");
         if(total>num(fund.available)+addBack)return Swal.showValidationMessage("ยอดขอเบิกเกินเงินพร้อมใช้ "+money(num(fund.available)+addBack));
-        return{id:rq.id,action:"admin_edit",projectId:$("#rqProject").value,activityId:$("#rqActivity").value,startDate:$("#rqStart").value,endDate:$("#rqEnd").value,details:$("#rqDetails").value.trim(),fundType:$("#rqFund").value,items};
+        return{id:rq.id,action:resubmitMode?"resubmit":"admin_edit",projectId:$("#rqProject").value,activityId:$("#rqActivity").value,startDate:$("#rqStart").value,endDate:$("#rqEnd").value,details:$("#rqDetails").value.trim(),fundType:$("#rqFund").value,items};
       }
     });
     if(!x.value)return;
     await api("/api/requests",{method:"PUT",body:JSON.stringify(x.value)});
     await refreshData();
-    await Swal.fire({icon:"success",title:"แก้ไขรายการขอเบิกแล้ว",timer:1000,showConfirmButton:false});
+    await Swal.fire({icon:"success",title:resubmitMode?"ส่งคำขอใหม่แล้ว":"แก้ไขรายการขอเบิกแล้ว",timer:1000,showConfirmButton:false});
     refreshFn();
   }catch(e){err(e)}
 }
