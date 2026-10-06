@@ -737,7 +737,7 @@ async function systemSettings(){
         const payload={systemTitle:$("#setSystemTitle").value.trim(),schoolName:$("#setSchoolName").value.trim(),schoolLocation:$("#setSchoolLocation").value.trim(),financeOfficer:$("#setFinanceOfficer").value.trim(),directorName:$("#setDirectorName").value.trim(),directorTitle:$("#setDirectorTitle").value.trim(),schoolLogo:currentLogo};
         if(!payload.schoolName||!payload.systemTitle)return Swal.fire({icon:"warning",title:"กรุณากรอกชื่อโรงเรียนและชื่อระบบ"});
         const saved=await api("/api/settings",{method:"PUT",body:JSON.stringify(payload)});
-        applyBrand(saved.settings||payload);
+        applyBrand(saved.settings||payload);writeBrandCache(saved.settings||payload);
         await Swal.fire({icon:"success",title:"บันทึกการตั้งค่าแล้ว",timer:1000,showConfirmButton:false});
       }catch(ex){err(ex)}finally{btn.disabled=false}
     };
